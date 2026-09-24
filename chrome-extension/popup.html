@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PCare Auto Filler</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      width: 320px;
+      padding: 16px;
+      background-color: #f8fafc;
+      color: #1e293b;
+    }
+
+    .card {
+      background: #ffffff;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+      border: 1px solid #e2e8f0;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .badge {
+      background: #0284c7;
+      color: white;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 4px;
+    }
+
+    h1 {
+      font-size: 15px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    p.desc {
+      font-size: 12px;
+      color: #64748b;
+      margin-bottom: 16px;
+      line-height: 1.4;
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .btn-group {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .btn-action {
+      width: 100%;
+      border: none;
+      padding: 11px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 3px;
+      transition: all 0.2s ease;
+      text-align: left;
+    }
+
+    .btn-action span.title {
+      font-size: 13px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-action span.sub {
+      font-size: 11px;
+      font-weight: 400;
+      opacity: 0.9;
+    }
+
+    .btn-primary {
+      background: #0284c7;
+      color: #ffffff;
+    }
+
+    .btn-primary:hover {
+      background: #0369a1;
+    }
+
+    .btn-success {
+      background: #059669;
+      color: #ffffff;
+    }
+
+    .btn-success:hover {
+      background: #047857;
+    }
+
+    .btn-action:active {
+      transform: scale(0.98);
+    }
+
+    .btn-action:disabled {
+      background: #94a3b8 !important;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .search-mode-box {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-top: -2px;
+      margin-bottom: 2px;
+    }
+
+    .search-mode-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #166534;
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .radio-group {
+      display: flex;
+      gap: 12px;
+    }
+
+    .radio-label {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      color: #1e293b;
+      cursor: pointer;
+      font-weight: 500;
+    }
+
+    .radio-label input[type="radio"] {
+      cursor: pointer;
+      accent-color: #059669;
+    }
+
+    .filter-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 10px;
+      margin-top: -2px;
+      margin-bottom: 4px;
+    }
+
+    .filter-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #334155;
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .filter-input-row {
+      display: flex;
+      gap: 6px;
+    }
+
+    .filter-input {
+      flex: 1;
+      padding: 6px 10px;
+      font-size: 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #0f172a;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .filter-input:focus {
+      border-color: #059669;
+    }
+
+    .btn-today {
+      background: #e2e8f0;
+      color: #334155;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.2s;
+    }
+
+    .btn-today:hover {
+      background: #cbd5e1;
+    }
+
+    .filter-hint {
+      font-size: 10px;
+      color: #64748b;
+      margin-top: 4px;
+      line-height: 1.3;
+    }
+
+    .status-box {
+      font-size: 12px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: #f1f5f9;
+      color: #334155;
+      display: none;
+      word-break: break-word;
+      line-height: 1.4;
+      border-left: 4px solid #0284c7;
+    }
+
+    .page-indicator {
+      margin-top: 10px;
+      font-size: 11px;
+      color: #64748b;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .page-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #94a3b8;
+    }
+
+    .page-dot.active {
+      background: #10b981;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="card">
+    <div class="header">
+      <img src="logo.png" alt="Logo" style="width: 24px; height: 24px; object-fit: contain; border-radius: 4px;">
+      <span class="badge">BPJS</span>
+      <h1>PCare Auto Filler</h1>
+    </div>
+    <p class="desc">Otomasi pengisian data laboratorium dari Google Sheets ke portal PCare BPJS.</p>
+
+    <div class="section-title">Pilih Modul Otomasi</div>
+    <div class="btn-group">
+      <!-- Modul 1: Pendaftaran Pasien -->
+      <button id="btnPendaftaran" class="btn-action btn-primary">
+        <span class="title">1. Otomasi Pendaftaran Pasien</span>
+        <span class="sub">Halaman Pendaftaran Peserta PCare</span>
+      </button>
+
+      <!-- Modul 2: Entri Kunjungan & Input Hasil Lab -->
+      <button id="btnInputHasil" class="btn-action btn-success">
+        <span class="title">2. Entri Kunjungan & Hasil Lab</span>
+        <span class="sub">Halaman /eclaim/EntriKunjunganDokkel</span>
+      </button>
+
+      <!-- Pilihan Metode Pencarian Pasien Modul 2 -->
+      <div class="search-mode-box">
+        <span class="search-mode-title">Metode Pencarian (Modul 2):</span>
+        <div class="radio-group">
+          <label class="radio-label">
+            <input type="radio" name="searchMode" value="kartu" checked>
+            <span>No. Kartu BPJS</span>
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="searchMode" value="antrian">
+            <span>No. Antrian</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Opsi Filter Tanggal Entri (Modul 1 & Modul 2) -->
+      <div class="filter-box">
+        <label for="filterTanggal" class="filter-label">
+          Tanggal Pendaftaran & Filter (Opsional):
+        </label>
+        <div class="filter-input-row">
+          <input type="text" id="filterTanggal" class="filter-input"
+            placeholder="Misal: 16 September 2026 atau 16-09-2026">
+          <button type="button" id="btnHariIni" class="btn-today" title="Set ke tanggal hari ini">Hari Ini</button>
+        </div>
+        <div class="filter-hint">Modul 1: Tanggal pendaftaran. Modul 2: Filter TGL ENTRI. (Default: Hari Ini).</div>
+      </div>
+
+      <!-- Opsi Jumlah Ambil Data (Limit / Tes Data) -->
+      <div class="filter-box">
+        <label for="limitData" class="filter-label">
+          Jumlah Ambil Data:
+        </label>
+        <div class="filter-input-row">
+          <select id="limitData" class="filter-input" style="cursor: pointer; font-weight: 500;">
+            <option value="all" selected>Semua Data di Google Sheets</option>
+            <option value="1">Tes 1 Pasien (Uji Coba Cepat)</option>
+            <option value="3">Tes 3 Pasien</option>
+            <option value="5">Tes 5 Pasien</option>
+            <option value="10">Tes 10 Pasien</option>
+            <option value="20">Tes 20 Pasien</option>
+            <option value="50">Tes 50 Pasien</option>
+            <option value="custom">Kustom (Ketik Angka Sendiri)...</option>
+          </select>
+          <input type="number" id="customLimitInput" class="filter-input" placeholder="Jumlah" min="1" max="1000" style="display: none; max-width: 80px;">
+        </div>
+        <div class="filter-hint" id="limitHint">Memproses semua data yang tersedia di Google Sheets.</div>
+      </div>
+
+      <!-- Fallback tombol lama untuk kompatibilitas -->
+      <button id="btnStart" style="display: none;"></button>
+    </div>
+
+    <div id="pageIndicator" class="page-indicator">
+      <div id="pageDot" class="page-dot"></div>
+      <span id="pageText">Mendeteksi halaman portal...</span>
+    </div>
+
+    <div id="statusBox" class="status-box"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+
+</html>

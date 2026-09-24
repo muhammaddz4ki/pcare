@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "PCare BPJS Auto Filler",
+  "version": "1.0.0",
+  "description": "Otomasi input data dari Google Sheets ke portal PCare BPJS",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "icons": {
+    "16": "logo.png",
+    "32": "logo.png",
+    "48": "logo.png",
+    "128": "logo.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "logo.png",
+      "32": "logo.png",
+      "48": "logo.png",
+      "128": "logo.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.bpjs-kesehatan.go.id/*",
+        "https://pcarejkn.bpjs-kesehatan.go.id/*",
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": ["content.js"]
+    }
+  ]
+}
