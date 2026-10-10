@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "description": "Otomasi input data dari Google Sheets ke portal PCare BPJS",
   "permissions": [
+    "storage",
     "activeTab",
     "scripting"
   ],

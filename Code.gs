@@ -2,10 +2,10 @@
  * =========================================================================================
  * SISTEM OTOMASI GOOGLE SHEETS KE PCARE BPJS (TWO-WAY SYNC)
  * File: Code.gs (Google Apps Script)
- * Target Spreadsheet Salinan (Testing Sheet): 1IUQqUAyz3Omonb4y7Lh1QqnrkGIJGSwF5xTPIxi_A4s
+ * Target Spreadsheet: 1wu6r36aA94-jBxWacNewjOXiaB_42p8FLYfaul6auOg
  * =========================================================================================
  * Petunjuk Deploy:
- * 1. Buka Google Sheets Salinan / Testing Anda.
+ * 1. Buka Google Sheets Anda.
  * 2. Klik Extensions (Ekstensi) > Apps Script.
  * 3. Hapus seluruh kode lama dan paste seluruh isi file ini ke file `Code.gs`.
  * 4. Klik ikon Disket (Save).
@@ -15,8 +15,8 @@
  * =========================================================================================
  */
 
-// Spreadsheet ID Salinan (Testing Sheet)
-const SPREADSHEET_ID = "1IUQqUAyz3Omonb4y7Lh1QqnrkGIJGSwF5xTPIxi_A4s";
+// Spreadsheet ID
+const SPREADSHEET_ID = "1wu6r36aA94-jBxWacNewjOXiaB_42p8FLYfaul6auOg";
 
 /**
  * Helper: Membuka spreadsheet berdasarkan SPREADSHEET_ID dengan fallback ke getActiveSpreadsheet()
@@ -33,19 +33,61 @@ function getSpreadsheet() {
 }
 
 /**
+ * Helper: Mengarahkan ke sheet yang sesuai berdasarkan sheetParam atau sheetTargetParam
+ * - 'PROLANIS' -> Sheet yang memuat kata 'PROLANIS'
+ * - 'SKRINING' -> Sheet yang memuat kata 'SKRINING'
+ * - 'PAPSMEAR' -> Sheet yang memuat kata 'PAPSMEAR'
+ */
+function resolveSheet(ss, sheetParam, sheetTargetParam) {
+  if (sheetParam) {
+    const s = ss.getSheetByName(sheetParam);
+    if (s) return s;
+  }
+
+  const targetKey = String(sheetTargetParam || "").trim().toUpperCase();
+  if (targetKey) {
+    const allSheets = ss.getSheets();
+    for (let i = 0; i < allSheets.length; i++) {
+      const name = allSheets[i].getName().toUpperCase();
+      if (targetKey === "PROLANIS" && name.includes("PROLANIS")) {
+        return allSheets[i];
+      }
+      if (targetKey === "SKRINING" && (name.includes("SKRINING") || (name.includes("DM") && !name.includes("PROLANIS")))) {
+        return allSheets[i];
+      }
+      if (targetKey === "PAPSMEAR" && (name.includes("PAP") || name.includes("SMEAR"))) {
+        return allSheets[i];
+      }
+    }
+
+    // Fallback pencarian parsial nama sheet
+    for (let i = 0; i < allSheets.length; i++) {
+      const name = allSheets[i].getName().toUpperCase();
+      if (name.includes(targetKey)) {
+        return allSheets[i];
+      }
+    }
+  }
+
+  return ss.getActiveSheet();
+}
+
+/**
  * Menangani permintaan HTTP GET dari Ekstensi Chrome
- * - Modul 1 (Pendaftaran): Mengambil pasien yang Kolom C (TGL ENTRI) masih KOSONG
+ * - Modul 1 (Pendaftaran): Mengambil pasien yang Kolom C / TGL ENTRI masih KOSONG
  * - Modul 2 (Kunjungan / Input Hasil):
- *     1. Kolom C (TGL ENTRI) HARUS ADA ISINYA (sudah terdaftar)
+ *     1. Kolom C / TGL ENTRI HARUS ADA ISINYA (sudah terdaftar)
  *     2. Memiliki minimal 1 data hasil lab non-kosong (CHO, TG, GDP, HBA1C, dll)
  *     3. Background baris BELUM BERWARNA MERAH/SALEM (#F4CCCC / #E6B8AF)
  */
 function doGet(e) {
   try {
     const ss = getSpreadsheet();
-    const sheet = (e && e.parameter && e.parameter.sheet)
-      ? (ss.getSheetByName(e.parameter.sheet) || ss.getActiveSheet())
-      : ss.getActiveSheet();
+    const sheetTargetParam = (e && e.parameter && (e.parameter.sheetTarget || e.parameter.targetSheet))
+      ? String(e.parameter.sheetTarget || e.parameter.targetSheet).trim()
+      : "";
+    const sheetParam = (e && e.parameter && e.parameter.sheet) ? String(e.parameter.sheet).trim() : "";
+    const sheet = resolveSheet(ss, sheetParam, sheetTargetParam);
 
     const lastRow = sheet.getLastRow();
 
@@ -59,8 +101,9 @@ function doGet(e) {
       });
     }
 
-    // Ambil Header pada Baris 7 (Mencakup minimal 45 kolom hingga Kolom AO)
+    // Ambil Header pada Baris 1 & Baris 7 (Mencakup minimal 45 kolom hingga Kolom AO)
     const totalCols = Math.max(sheet.getLastColumn(), 45);
+    const headersRow1 = sheet.getRange(1, 1, 1, totalCols).getValues()[0];
     const headers = sheet.getRange(7, 1, 1, totalCols).getValues()[0];
 
     // Ambil Data & Backgrounds mulai dari Baris 9 sampai baris terakhir
@@ -115,6 +158,78 @@ function doGet(e) {
       return str.toLowerCase();
     }
 
+    const indonesianMonthNames = [
+      "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+      "Juli", "Agustus", "September", "Oktober", "November", "Desember"
+    ];
+
+    // Helper: Menambahkan 1 hari ke nilai tanggal dengan penanganan rollover akhir bulan yang akurat
+    function getNextDayFormatted(rawDateVal) {
+      if (!rawDateVal) return "";
+      let dObj = null;
+      let wasIndoText = false;
+
+      if (rawDateVal instanceof Date && !isNaN(rawDateVal.getTime())) {
+        dObj = new Date(rawDateVal.getTime());
+      } else {
+        const str = String(rawDateVal).trim();
+        const indonesianMonths = {
+          januari: 0, februari: 1, maret: 2, april: 3, mei: 4, juni: 5,
+          juli: 6, agustus: 7, september: 8, oktober: 9, november: 10, desember: 11,
+          jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+          jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+        };
+        const matchIndo = str.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/);
+        if (matchIndo) {
+          wasIndoText = true;
+          const d = parseInt(matchIndo[1], 10);
+          const m = indonesianMonths[matchIndo[2].toLowerCase()] !== undefined ? indonesianMonths[matchIndo[2].toLowerCase()] : 0;
+          const y = parseInt(matchIndo[3], 10);
+          dObj = new Date(y, m, d);
+        } else {
+          const matchDDMM = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+          if (matchDDMM) {
+            const d = parseInt(matchDDMM[1], 10);
+            const m = parseInt(matchDDMM[2], 10) - 1;
+            const y = parseInt(matchDDMM[3], 10);
+            dObj = new Date(y, m, d);
+          } else {
+            const matchISO = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+            if (matchISO) {
+              const y = parseInt(matchISO[1], 10);
+              const m = parseInt(matchISO[2], 10) - 1;
+              const d = parseInt(matchISO[3], 10);
+              dObj = new Date(y, m, d);
+            } else {
+              const parsed = new Date(str);
+              if (!isNaN(parsed.getTime())) {
+                dObj = parsed;
+              }
+            }
+          }
+        }
+      }
+
+      if (!dObj || isNaN(dObj.getTime())) return "";
+
+      // Tambahkan 1 hari (otomatis menangani akhir bulan, leap year, dan pergantian tahun)
+      dObj.setDate(dObj.getDate() + 1);
+
+      // Jika jatuh pada hari MINGGU (getDay() === 0), lewati hari libur faskes ke hari SENIN
+      if (dObj.getDay() === 0) {
+        dObj.setDate(dObj.getDate() + 1);
+      }
+
+      const d = String(dObj.getDate()).padStart(2, "0");
+      const m = String(dObj.getMonth() + 1).padStart(2, "0");
+      const y = dObj.getFullYear();
+
+      if (wasIndoText) {
+        return `${dObj.getDate()} ${indonesianMonthNames[dObj.getMonth()]} ${y}`;
+      }
+      return `${d}-${m}-${y}`;
+    }
+
     // Helper: Deteksi warna latar belakang merah muda / salem selesai
     function isRedOrSalem(colorHex) {
       if (!colorHex) return false;
@@ -163,22 +278,74 @@ function doGet(e) {
      * Kolom AO / AP    : Pelayanan Non Kapitasi / Status Pulang
      */
 
-    // Helper pencarian dinamis berdasarkan header baris 7 dengan fallback indeks pasti
+    // Helper pencarian dinamis: prioritaskan header baris 1, lalu baris 7, dengan fallback indeks pasti
     function getColIdx(headerNames, defaultIdx) {
-      for (let c = 0; c < headers.length; c++) {
-        const text = headers[c] ? String(headers[c]).trim().toUpperCase() : "";
-        for (let name of headerNames) {
-          if (text === name || text.startsWith(name)) {
-            return c;
+      // 1. Cek baris 1 terlebih dahulu (prioritas utama nama header baris 1)
+      if (headersRow1 && headersRow1.length > 0) {
+        for (let c = 0; c < headersRow1.length; c++) {
+          const text = headersRow1[c] ? String(headersRow1[c]).trim().toUpperCase() : "";
+          if (!text) continue;
+          for (let name of headerNames) {
+            const target = String(name).trim().toUpperCase();
+            if (text === target || text.startsWith(target) || text.includes(target)) {
+              return c;
+            }
+          }
+        }
+      }
+      // 2. Cek baris 7
+      if (headers && headers.length > 0) {
+        for (let c = 0; c < headers.length; c++) {
+          const text = headers[c] ? String(headers[c]).trim().toUpperCase() : "";
+          if (!text) continue;
+          for (let name of headerNames) {
+            const target = String(name).trim().toUpperCase();
+            if (text === target || text.startsWith(target) || text.includes(target)) {
+              return c;
+            }
           }
         }
       }
       return defaultIdx;
     }
 
-    const idxTglEntri = getColIdx(["TGL ENTRI", "TANGGAL ENTRI", "TGL ENTRY", "TANGGAL ENTRY", "TGL_ENTRI"], 2); // Kolom C
-    const idxBpjs = getColIdx(["NO BPJS", "NO. BPJS", "NO KARTU"], 3);    // Kolom D
-    const idxNama = getColIdx(["NAMA PESERTA", "NAMA"], 4);                // Kolom E
+    const sheetNameUpper = sheet.getName().toUpperCase();
+    const isPapSmearSheet = sheetNameUpper.includes("PAP") || sheetNameUpper.includes("SMEAR") || (sheetTargetParam && sheetTargetParam.toUpperCase() === "PAPSMEAR");
+
+    // Pemetaan khusus kolom tanggal & data pasien:
+    // Tab PROLANIS / SKRINING:
+    // - Kolom B (idx 1): TGL PLY
+    // - Kolom C (idx 2): TGL ENTRI
+    // - Kolom D (idx 3): NO BPJS
+    // - Kolom E (idx 4): NAMA PESERTA
+    // Tab PAPSMEAR:
+    // - Kolom B (idx 1): TGL PLY
+    // - Kolom C (idx 2): TGL HASIL
+    // - Kolom D (idx 3): TGL ENTRI
+    // - Kolom E (idx 4): NO BPJS
+    // - Kolom F (idx 5): NAMA PESERTA
+    const defaultIdxTglPly = 1;
+    const defaultIdxTglHasil = isPapSmearSheet ? 2 : -1;
+    const defaultIdxTglEntri = isPapSmearSheet ? 3 : 2;
+    const defaultIdxBpjs = isPapSmearSheet ? 4 : 3;
+    const defaultIdxNama = isPapSmearSheet ? 5 : 4;
+
+    let idxTglPly = getColIdx(["TGL PELAYANAN", "TGL PLY", "TANGGAL PELAYANAN", "TGL PERIKSA", "TANGGAL PERIKSA", "TGL", "TANGGAL"], defaultIdxTglPly);
+    let idxTglHasil = getColIdx(["TGL HASIL", "TANGGAL HASIL", "TGL_HASIL"], defaultIdxTglHasil);
+    let idxTglEntri = getColIdx(["TGL ENTRI", "TANGGAL ENTRI", "TGL ENTRY", "TANGGAL ENTRY", "TGL_ENTRI"], defaultIdxTglEntri);
+    let idxBpjs = getColIdx(["NO BPJS", "NO. BPJS", "NO KARTU", "NOMOR KARTU"], defaultIdxBpjs);
+    let idxNama = getColIdx(["NAMA PESERTA", "NAMA"], defaultIdxNama);
+
+    // Pemetaan kolom khusus tab Pap Smear:
+    // Kolom B (index 1): TGL PLY, Kolom C (index 2): TGL HASIL, Kolom D (index 3): TGL ENTRI, Kolom E (index 4): NO BPJS
+    if (isPapSmearSheet) {
+      idxTglPly = 1;   // Kolom B (index 1): TGL PLY
+      idxTglHasil = 2; // Kolom C (index 2): TGL HASIL
+      idxTglEntri = 3; // Kolom D (index 3): TGL ENTRI
+      idxBpjs = 4;     // Kolom E (index 4): NO BPJS
+      if (idxNama <= 4) idxNama = 5; // Kolom F (index 5): NAMA
+    }
+
     const idxTensi = getColIdx(["TENSI", "TEKANAN DARAH"], 7);             // Kolom H
     const idxTb = getColIdx(["TB", "TINGGI BADAN"], 8);                    // Kolom I
     const idxBb = getColIdx(["BB", "BERAT BADAN"], 9);                     // Kolom J
@@ -199,11 +366,26 @@ function doGet(e) {
     const idxGdpp = getColIdx(["GDPP", "GLUKOSA 2 JAM PP", "2 JAM PP", "GULA 2 JAM"], 22); // Kolom W (22)
     const idxGds = getColIdx(["GDS", "GLUKOSA SEWAKTU", "GULA SEWAKTU"], 23);     // Kolom X (23)
 
-    // Data Kunjungan & Klinis
-    const idxKeluhan = getColIdx(["KELUHAN", "SKRINING"], 24);             // Kolom Y / AC
+    // Deteksi tata letak default kolom diagnosa & keluhan berdasarkan nama sheet aktif:
+    let defaultIdxDiagnosa = 34; // Tab PROLANIS: Diagnosa Kolom AI (index 34)
+    let defaultIdxKeluhan = 29;  // Tab PROLANIS: Keluhan Kolom AD (index 29)
+
+    if (sheetNameUpper.includes("SKRINING") || (sheetNameUpper.includes("DM") && !sheetNameUpper.includes("PROLANIS"))) {
+      defaultIdxDiagnosa = 24; // Kolom Y (Skrining DM)
+      defaultIdxKeluhan = 19;  // Kolom T (Skrining DM)
+    } else if (isPapSmearSheet) {
+      defaultIdxDiagnosa = 25; // Kolom Z (Pap Smear)
+      defaultIdxKeluhan = 20;  // Kolom U (Pap Smear)
+    } else {
+      defaultIdxDiagnosa = 34; // Kolom AI (Prolanis)
+      defaultIdxKeluhan = 29;  // Kolom AD (Prolanis)
+    }
+
+    // Data Kunjungan & Klinis (Prioritas Header Baris 1 -> Baris 7 -> Fallback Tab Aktif)
+    const idxKeluhan = getColIdx(["KELUHAN", "KELUHAN UTAMA"], defaultIdxKeluhan);
     const idxJam = getColIdx(["JAM KUNJUNGAN", "JAM"], 25);                // Kolom Z / AD
     const idxAnamnesa = getColIdx(["ANAMNESA", "ANAMNESIS"], 26);          // Kolom AA / AE
-    const idxDiagnosa = getColIdx(["DIAGNOSA", "KODE DIAGNOSA", "ICD10"], 30); // Kolom AE / AI
+    const idxDiagnosa = getColIdx(["DIAGNOSA", "KODE DIAGNOSA", "ICD10", "ICD-10", "DIAGNOSIS"], defaultIdxDiagnosa);
     const idxSuhu = getColIdx(["SUHU", "TEMPERATUR"], 31);                 // Kolom AF / AJ
     const idxPelayananNonKap = getColIdx(["PELAYANAN NON KAPITASI", "NON KAPITASI", "PELAYANAN NON", "PELAYANAN"], 40); // Kolom AO / AP
 
@@ -257,6 +439,23 @@ function doGet(e) {
       }
     }
 
+    // -------------------------------------------------------------
+    // LACAK PASIEN GANDA PADA TANGGAL SAMA (H+1 AUTO-SHIFT)
+    // -------------------------------------------------------------
+    // Map frekuensi kemunculan: key = `${noBpjs}_${tglPly}`
+    const patientSameDayFrequency = {};
+    for (let r = 0; r < dataValues.length; r++) {
+      const bVal = dataValues[r][idxBpjs];
+      if (!bVal) continue;
+      const bStr = String(bVal).trim().padStart(13, "0");
+      const pDate = toStandardDDMMYYYY(dataValues[r][idxTglPly]);
+      if (bStr && pDate) {
+        const k = `${bStr}_${pDate}`;
+        patientSameDayFrequency[k] = (patientSameDayFrequency[k] || 0) + 1;
+      }
+    }
+
+    const seenSameDayOrder = {};
     const patientRecords = [];
 
     for (let i = 0; i < dataValues.length; i++) {
@@ -264,8 +463,74 @@ function doGet(e) {
       const currentRowNumber = i + 9;
       const rowBg = String(backgrounds[i][0] || "").trim().toUpperCase();
 
+      const noBpjsRaw = row[idxBpjs];
+      const noBpjsClean = (noBpjsRaw !== null && noBpjsRaw !== undefined) ? String(noBpjsRaw).trim() : "";
+      // Rule: Abaikan/skip baris jika kolom NO BPJS kosong
+      if (!noBpjsClean) {
+        continue;
+      }
+      const noBpjs = noBpjsClean.padStart(13, "0");
+
+      const tglPlyRaw = row[idxTglPly];
+      const tglPlyClean = toStandardDDMMYYYY(tglPlyRaw) || formatCellValue(tglPlyRaw);
+      const tglPlyStd = toStandardDDMMYYYY(tglPlyRaw);
+
+      const tglHasilRaw = (idxTglHasil >= 0 && row[idxTglHasil] !== undefined) ? row[idxTglHasil] : (isPapSmearSheet ? row[2] : "");
+      const tglHasilClean = toStandardDDMMYYYY(tglHasilRaw) || formatCellValue(tglHasilRaw);
+
       const tglEntriRaw = row[idxTglEntri];
       const tglEntriClean = formatCellValue(tglEntriRaw);
+
+      // Lacak urutan kemunculan pasien pada hari yang sama (No BPJS & tglPly)
+      const sameDayKey = (noBpjs && tglPlyStd) ? `${noBpjs}_${tglPlyStd}` : "";
+      if (sameDayKey) {
+        seenSameDayOrder[sameDayKey] = (seenSameDayOrder[sameDayKey] || 0) + 1;
+      }
+      const orderIndex = sameDayKey ? seenSameDayOrder[sameDayKey] : 1;
+      const totalSameDayCount = sameDayKey ? (patientSameDayFrequency[sameDayKey] || 1) : 1;
+
+      // Deteksi indikasi baris Skrining DM (diagnosa z13.1, keluhan skrining dm, atau tindakan gula darah)
+      const rawDiagStr = formatCellValue(row[idxDiagnosa] !== undefined ? row[idxDiagnosa] : row[defaultIdxDiagnosa]).toLowerCase().replace(/\s+/g, "");
+      const rawKelStr = formatCellValue(row[idxKeluhan] !== undefined ? row[idxKeluhan] : row[defaultIdxKeluhan]).toLowerCase();
+      const rawPelStr = formatCellValue(row[idxPelayananNonKap] !== undefined ? row[idxPelayananNonKap] : row[40]).toLowerCase();
+      const isSkriningIndication = (
+        rawDiagStr === "z13.1" || rawDiagStr === "z131" ||
+        rawKelStr.includes("skrining") ||
+        rawPelStr.includes("skrining") || rawPelStr.includes("penapisan")
+      );
+
+      // Evaluasi apakah baris ini adalah duplikat pada hari yang sama:
+      // - Muncul setelah baris pertama (orderIndex > 1)
+      // - Atau total kemunculan > 1 dan baris ini mengindikasikan skrining gula darah
+      let isDuplicateSameDay = false;
+      if (totalSameDayCount > 1) {
+        if (orderIndex > 1 || isSkriningIndication) {
+          isDuplicateSameDay = true;
+        }
+      }
+
+      // Hitung tanggal H+1 (tglOffset) jika terdeteksi pasien ganda
+      const tglOffset = isDuplicateSameDay ? getNextDayFormatted(tglPlyRaw || tglPlyClean) : "";
+
+      // Penentuan effectiveDate:
+      // - Khusus tab PAPSMEAR: gunakan tglHasil || tglPly
+      // - Tab lain (PROLANIS & SKRINING):
+      //   * Jika kolom TGL ENTRI sudah diisi manual di spreadsheet: prioritaskan nilai manual tersebut
+      //   * Jika TGL ENTRI kosong:
+      //     - Jika isDuplicateSameDay === true: gunakan patient.tglOffset (H+1)
+      //     - Jika pasien normal: gunakan patient.tglPly
+      let effectiveDate = "";
+      if (isPapSmearSheet) {
+        effectiveDate = tglHasilClean || tglPlyClean;
+      } else {
+        if (tglEntriClean !== "") {
+          effectiveDate = tglEntriClean;
+        } else if (isDuplicateSameDay && tglOffset) {
+          effectiveDate = tglOffset;
+        } else {
+          effectiveDate = tglPlyClean;
+        }
+      }
 
       // -------------------------------------------------------------
       // 1. FILTER BERDASARKAN MODE OPERASI
@@ -273,26 +538,13 @@ function doGet(e) {
 
       if (!isKunjunganMode) {
         // MODUL 1 (PENDAFTARAN):
-        // HANYA ambil baris yang Kolom C (TGL ENTRI) masih KOSONG
+        // HANYA ambil baris yang Kolom TGL ENTRI masih KOSONG
         if (tglEntriClean !== "") {
           continue;
         }
       } else {
         // MODUL 2 (ENTRI KUNJUNGAN & INPUT HASIL LAB):
-        // a. Kolom C (TGL ENTRI) HARUS ADA ISINYA (hanya pasien yang sudah terdaftar)
-        if (tglEntriClean === "") {
-          continue;
-        }
-
-        // b. Filter Tanggal: Hanya proses baris yang tanggal entri-nya cocok dengan target tanggal
-        if (targetDateStandard) {
-          const rowDateStandard = toStandardDDMMYYYY(tglEntriRaw);
-          if (rowDateStandard !== targetDateStandard) {
-            continue;
-          }
-        }
-
-        // c. Background baris BELUM BERWARNA MERAH/SALEM (#F4CCCC / #E6B8AF)
+        // a. Background baris BELUM BERWARNA MERAH/SALEM (#F4CCCC / #E6B8AF)
         const isAlreadyCompleted =
           isRedOrSalem(backgrounds[i][0]) ||
           isRedOrSalem(backgrounds[i][1]) ||
@@ -302,19 +554,39 @@ function doGet(e) {
         if (isAlreadyCompleted) {
           continue; // Pasien sudah selesai diinput hasil labnya
         }
+
+        if (isPapSmearSheet) {
+          // Khusus Tab PAPSMEAR:
+          // Jika Kolom D (TGL ENTRI) sudah terisi tanggal hasil dari HASIL_SELESAI, lewati
+          if (tglEntriClean !== "") {
+            continue;
+          }
+
+          // Filter Tanggal pada tab PAPSMEAR: cocokkan target tanggal dengan effectiveDate (tglHasil || tglPly)
+          if (targetDateStandard) {
+            const rowDateStd = toStandardDDMMYYYY(effectiveDate);
+            if (rowDateStd !== targetDateStandard) {
+              continue;
+            }
+          }
+        } else {
+          // Tab PROLANIS & SKRINING:
+          // Kolom TGL ENTRI HARUS ADA ISINYA (hanya pasien yang sudah terdaftar)
+          if (tglEntriClean === "") {
+            if (!sheetNameUpper.includes("SKRINING")) {
+              continue;
+            }
+          }
+
+          // Filter Tanggal: Hanya proses baris yang tanggal entri-nya cocok dengan target tanggal
+          if (targetDateStandard) {
+            const rowDateStandard = toStandardDDMMYYYY(tglEntriRaw) || toStandardDDMMYYYY(effectiveDate) || toStandardDDMMYYYY(tglPlyRaw);
+            if (rowDateStandard !== targetDateStandard) {
+              continue;
+            }
+          }
+        }
       }
-
-      // 2. Ambil No BPJS dan bersihkan spasi
-      const noBpjsRaw = row[idxBpjs];
-      const noBpjsClean = noBpjsRaw !== null && noBpjsRaw !== undefined ? String(noBpjsRaw).trim() : "";
-
-      // Rule: Abaikan/skip baris jika kolom NO BPJS kosong
-      if (!noBpjsClean) {
-        continue;
-      }
-
-      // Pastikan standar 13 digit nomor kartu BPJS (tambahkan leading zeros jika hilang)
-      const noBpjs = noBpjsClean.padStart(13, "0");
 
       // 3. Parameter Lab (Mulai dari indeks 13 (N) sampai 23 (X))
       // Periksa dan validasi angka ketat (mencegah 'false', 'Baru', 'Promotif Preventif', dll)
@@ -342,13 +614,17 @@ function doGet(e) {
       let gdppVal = isValidLabNumber(rawGdpp) ? rawGdpp : "";
       let gdsVal = isValidLabNumber(rawGds) ? rawGds : "";
 
-      // c. Filter Khusus Modul 2: Memiliki minimal 1 data lab valid non-kosong
+      // c. Filter Khusus Modul 2: Memiliki minimal 1 data lab valid non-kosong ATAU baris tab khusus (Papsmear / Skrining DM)
       const hasAnyLab = Boolean(
         choVal || tgVal || hdlVal || ldlVal || urVal || creVal || mauVal ||
         hba1cVal || gdpVal || gdppVal || gdsVal
       );
 
-      if (isKunjunganMode && !hasAnyLab) {
+      const isSpecialSheet = sheetNameUpper.includes("PAP") || sheetNameUpper.includes("SMEAR") || sheetNameUpper.includes("SKRINING");
+      const diagCleanCheck = formatCellValue(row[idxDiagnosa]).toLowerCase().replace(/\s+/g, "");
+      const isSpecialDiag = diagCleanCheck === "z12.4" || diagCleanCheck === "z13.1";
+
+      if (isKunjunganMode && !hasAnyLab && !isSpecialSheet && !isSpecialDiag) {
         continue; // Lewati jika seluruh kolom hasil lab kosong / tidak valid
       }
 
@@ -373,12 +649,34 @@ function doGet(e) {
       const rrVal = formatCellValue(row[idxRr]); // Kolom L (contoh: 24, 23)
       const hrVal = formatCellValue(row[idxHr]); // Kolom M (contoh: 81, 83)
 
-      // 6. Data Kunjungan & Klinis (Kolom AC, AD, AE, AI, AJ)
-      const keluhanVal = formatCellValue(row[idxKeluhan]);
+      // 6. Data Kunjungan & Klinis (Dinamis Lintas Tab)
+      let keluhanVal = formatCellValue(row[idxKeluhan]);
       const jamKunjunganVal = formatCellValue(row[idxJam]) || "07:00";
       const anamnesaVal = formatCellValue(row[idxAnamnesa]);
-      const diagnosaVal = formatCellValue(row[idxDiagnosa]);
+      let diagnosaVal = formatCellValue(row[idxDiagnosa]);
       const suhuVal = formatCellValue(row[idxSuhu]) || "36.0";
+
+      // Fallback nilai diagnosa per tab jika cell pada idxDiagnosa masih kosong
+      if (!diagnosaVal) {
+        if (sheetNameUpper.includes("SKRINING") && formatCellValue(row[24])) {
+          diagnosaVal = formatCellValue(row[24]); // Kolom Y (Skrining DM)
+        } else if ((sheetNameUpper.includes("PAP") || sheetNameUpper.includes("SMEAR")) && formatCellValue(row[25])) {
+          diagnosaVal = formatCellValue(row[25]); // Kolom Z (Pap Smear)
+        } else if (formatCellValue(row[34])) {
+          diagnosaVal = formatCellValue(row[34]); // Kolom AI (Prolanis)
+        }
+      }
+
+      // Fallback nilai keluhan per tab jika cell pada idxKeluhan masih kosong
+      if (!keluhanVal) {
+        if (sheetNameUpper.includes("SKRINING") && formatCellValue(row[19])) {
+          keluhanVal = formatCellValue(row[19]); // Kolom T (Skrining DM)
+        } else if ((sheetNameUpper.includes("PAP") || sheetNameUpper.includes("SMEAR")) && formatCellValue(row[20])) {
+          keluhanVal = formatCellValue(row[20]); // Kolom U (Pap Smear)
+        } else if (formatCellValue(row[29])) {
+          keluhanVal = formatCellValue(row[29]); // Kolom AD (Prolanis)
+        }
+      }
 
       // 7. Deteksi Opsi Perawatan
       let perawatanVal = "Promotif Preventif";
@@ -413,6 +711,11 @@ function doGet(e) {
       patientRecords.push({
         rowNumber: currentRowNumber,
         sheetName: sheet.getName(),
+        tglPly: tglPlyClean,
+        tglHasil: tglHasilClean,
+        effectiveDate: effectiveDate,
+        isDuplicateSameDay: isDuplicateSameDay,
+        tglOffset: tglOffset,
         tglEntri: tglEntriClean,
         noBpjs: noBpjs,
         nama: formatCellValue(row[idxNama]),
@@ -459,10 +762,15 @@ function doGet(e) {
         },
         // Raw mapping berdasar abjad kolom (hingga AO)
         rawCols: {
-          C: tglEntriClean,
-          D: noBpjs,
-          E: formatCellValue(row[4]),
-          F: formatCellValue(row[5]),
+          B: tglPlyClean,
+          C: isPapSmearSheet ? tglHasilClean : tglEntriClean,
+          D: isPapSmearSheet ? tglEntriClean : noBpjs,
+          E: isPapSmearSheet ? noBpjs : formatCellValue(row[4]),
+          F: isPapSmearSheet ? formatCellValue(row[idxNama]) : formatCellValue(row[5]),
+          tglHasil: tglHasilClean,
+          effectiveDate: effectiveDate,
+          isDuplicateSameDay: isDuplicateSameDay,
+          tglOffset: tglOffset,
           G: formatCellValue(row[6]),
           H: tensiRaw,
           I: tbVal,
@@ -494,11 +802,17 @@ function doGet(e) {
           GDP: gdpVal,
           GDPP: gdppVal,
           GDS: gdsVal,
-          Y: keluhanVal,
-          Z: jamKunjunganVal,
+          T: formatCellValue(row[19]), // Kolom T (Keluhan Skrining DM)
+          U: formatCellValue(row[20]), // Kolom U (Keluhan Pap Smear)
+          Y: formatCellValue(row[24]), // Kolom Y (Diagnosa Skrining DM)
+          Z: formatCellValue(row[25]), // Kolom Z (Diagnosa Pap Smear)
           AA: anamnesaVal,
-          AE: diagnosaVal,
+          AC: formatCellValue(row[28]),
+          AD: formatCellValue(row[29]), // Kolom AD (Keluhan Prolanis)
+          AE: formatCellValue(row[30]),
           AF: suhuVal,
+          AI: formatCellValue(row[34]), // Kolom AI (Diagnosa Prolanis)
+          AJ: formatCellValue(row[35]),
           AO: pelayananNonKapVal,
           AP: pelayananNonKapVal,
           keluhan: keluhanVal,
@@ -547,16 +861,31 @@ function findActualRowNumber(sheet, rowNumber, noBpjs) {
     const targetNo = String(noBpjs).trim();
     const targetPadded = targetNo.padStart(13, "0");
 
+    // Pada sheet PAPSMEAR, nomor BPJS berada di Kolom E (kolom ke-5). Pada tab lain di Kolom D (kolom ke-4).
+    const sName = sheet.getName().toUpperCase();
+    const isPapSmear = sName.includes("PAP") || sName.includes("SMEAR");
+    const bpjsCol = isPapSmear ? 5 : 4;
+
     if (actualRow <= lastRow) {
-      const currentVal = String(sheet.getRange(actualRow, 4).getValue()).trim();
+      const currentVal = String(sheet.getRange(actualRow, bpjsCol).getValue()).trim();
       if (currentVal === targetNo || currentVal.padStart(13, "0") === targetPadded) {
         return actualRow;
       }
     }
 
-    const dValues = sheet.getRange(1, 4, lastRow, 1).getValues();
-    for (let r = 8; r < dValues.length; r++) {
-      const cellVal = String(dValues[r][0]).trim();
+    const colValues = sheet.getRange(1, bpjsCol, lastRow, 1).getValues();
+    for (let r = 8; r < colValues.length; r++) {
+      const cellVal = String(colValues[r][0]).trim();
+      if (cellVal === targetNo || cellVal.padStart(13, "0") === targetPadded) {
+        return r + 1;
+      }
+    }
+
+    // Fallback: Jika tidak cocok di bpjsCol, coba cek di kolom cadangan (kolom 4 atau 5)
+    const fallbackCol = isPapSmear ? 4 : 5;
+    const fallbackValues = sheet.getRange(1, fallbackCol, lastRow, 1).getValues();
+    for (let r = 8; r < fallbackValues.length; r++) {
+      const cellVal = String(fallbackValues[r][0]).trim();
       if (cellVal === targetNo || cellVal.padStart(13, "0") === targetPadded) {
         return r + 1;
       }
@@ -649,7 +978,7 @@ function doPost(e) {
     const targetSheet = sheetName ? (ss.getSheetByName(sheetName) || ss.getActiveSheet()) : ss.getActiveSheet();
 
     // -----------------------------------------------------------------------------------
-    // AKSI 1: HASIL_SELESAI (Pewarnaan latar belakang baris pasien dengan merah muda/salem #F4CCCC)
+    // AKSI 1: HASIL_SELESAI (Pewarnaan latar belakang baris pasien dengan merah muda/salem #F4CCCC & Update TGL ENTRI)
     // -----------------------------------------------------------------------------------
     if (action === "HASIL_SELESAI") {
       if (!rowNumber || isNaN(rowNumber)) {
@@ -660,7 +989,33 @@ function doPost(e) {
       }
 
       const actualRow = findActualRowNumber(targetSheet, rowNumber, noBpjs);
-      const totalCols = Math.max(targetSheet.getLastColumn(), 40);
+      const totalCols = Math.max(targetSheet.getLastColumn(), 45);
+      const targetSheetUpper = targetSheet.getName().toUpperCase();
+      const isTargetPapSmear = targetSheetUpper.includes("PAP") || targetSheetUpper.includes("SMEAR");
+
+      // Tentukan nilai tanggal entri sesuai tab:
+      // - Saat menerima konfirmasi selesai untuk tab PAPSMEAR:
+      //   * Isi kolom TGL ENTRI (Kolom D) dengan nilai patient.tglHasil
+      // - Untuk tab PROLANIS / SKRINING:
+      //   * Tetap isi kolom TGL ENTRI dengan nilai patient.tglPly
+      let tglEntriVal = "";
+      const entriCol = isTargetPapSmear ? 4 : 3; // Kolom D (4) untuk PAPSMEAR, Kolom C (3) untuk PROLANIS / SKRINING
+      if (isTargetPapSmear) {
+        tglEntriVal = payload.tglHasil || payload.effectiveDate || "";
+        // Fallback: jika belum ada di payload, baca dari Kolom C (TGL HASIL) pada baris tersebut
+        if (!tglEntriVal && actualRow <= targetSheet.getLastRow()) {
+          tglEntriVal = formatCellValue(targetSheet.getRange(actualRow, 3).getValue());
+        }
+        if (!tglEntriVal) {
+          tglEntriVal = payload.tglPly || payload.tanggal || "";
+        }
+      } else {
+        tglEntriVal = payload.tglPly || payload.effectiveDate || payload.tanggal || "";
+      }
+
+      if (tglEntriVal) {
+        targetSheet.getRange(actualRow, entriCol).setValue(tglEntriVal);
+      }
 
       // Berikan warna latar belakang merah muda lembut/salem (#F4CCCC)
       targetSheet.getRange(actualRow, 1, 1, totalCols).setBackground("#F4CCCC");
@@ -669,10 +1024,110 @@ function doPost(e) {
       return createJsonResponse({
         status: "success",
         action: "HASIL_SELESAI",
-        message: `Sukses menandai hasil selesai: Baris ${actualRow} pada sheet '${targetSheet.getName()}' diwarnai #F4CCCC.`,
+        message: `Sukses menandai hasil selesai: Baris ${actualRow} pada sheet '${targetSheet.getName()}' diwarnai #F4CCCC dan TGL ENTRI diisi '${tglEntriVal}'.`,
         rowNumber: actualRow,
         noBpjs: noBpjs,
-        sheetName: targetSheet.getName()
+        sheetName: targetSheet.getName(),
+        tglEntri: tglEntriVal
+      });
+    }
+
+    // -----------------------------------------------------------------------------------
+    // AKSI 2: MOVEPATIENTROW / movePatientRow (Pemindahan baris pasien antar sheet)
+    // Parameter:
+    // - rowIndex / rowNumber: nomor baris asal pada sheet sumber (1-based index)
+    // - sourceSheetName: nama sheet asal (default: sheet aktif / 'PROLANIS OKTOBER 2026')
+    // - targetSheetName: sheet tujuan ('PAPSMEAR OKTOBER 2026', 'SKRINING DM OKTOBER 2026', atau 'KLAIM MUNDUR')
+    // - reason: pesan error / alasan penolakan (opsional)
+    // -----------------------------------------------------------------------------------
+    if (action === "MOVEPATIENTROW" || action === "MOVE_PATIENT_ROW") {
+      const rowIndex = Number(payload.rowIndex || payload.rowNumber);
+      if (!rowIndex || isNaN(rowIndex) || rowIndex < 1) {
+        return createJsonResponse({
+          status: "error",
+          message: "Parameter 'rowIndex' tidak valid atau tidak disertakan."
+        });
+      }
+
+      const sourceSheetName = String(payload.sourceSheetName || payload.fromSheet || payload.sheetName || "PROLANIS OKTOBER 2026").trim();
+      const targetSheetName = String(payload.targetSheetName || payload.toSheet || "").trim();
+      const reason = String(payload.reason || "").trim();
+
+      if (!targetSheetName) {
+        return createJsonResponse({
+          status: "error",
+          message: "Parameter 'targetSheetName' wajib disertakan untuk aksi movePatientRow."
+        });
+      }
+
+      const sourceSheet = ss.getSheetByName(sourceSheetName) || resolveSheet(ss, sourceSheetName, sourceSheetName) || ss.getActiveSheet();
+      let destSheet = ss.getSheetByName(targetSheetName);
+
+      if (!destSheet) {
+        const allSheets = ss.getSheets();
+        for (let s of allSheets) {
+          if (s.getName().toUpperCase().includes(targetSheetName.toUpperCase())) {
+            destSheet = s;
+            break;
+          }
+        }
+      }
+
+      if (!destSheet) {
+        // Buat sheet baru jika belum ada dan salin header baris 1 s/d 8 dari sourceSheet
+        destSheet = ss.insertSheet(targetSheetName);
+        const totalColsHeader = Math.max(sourceSheet.getLastColumn(), 45);
+        sourceSheet.getRange(1, 1, 8, totalColsHeader).copyTo(destSheet.getRange(1, 1));
+      }
+
+      const actualRow = payload.noBpjs ? findActualRowNumber(sourceSheet, rowIndex, payload.noBpjs) : rowIndex;
+      if (actualRow > sourceSheet.getLastRow()) {
+        return createJsonResponse({
+          status: "error",
+          message: `Baris ${actualRow} tidak ditemukan pada sheet '${sourceSheet.getName()}'.`
+        });
+      }
+
+      const totalCols = Math.max(sourceSheet.getLastColumn(), destSheet.getLastColumn(), 45);
+      const rowRange = sourceSheet.getRange(actualRow, 1, 1, totalCols);
+      const rowValues = rowRange.getValues();
+      const rowFormats = rowRange.getNumberFormats();
+
+      const destLastRow = Math.max(destSheet.getLastRow(), 8);
+      const newRowNumber = destLastRow + 1;
+      const destRange = destSheet.getRange(newRowNumber, 1, 1, totalCols);
+      destRange.setValues(rowValues);
+      destRange.setNumberFormats(rowFormats);
+
+      // Jika targetSheetName === 'KLAIM MUNDUR' (atau memuat 'KLAIM MUNDUR') dan reason diisi:
+      // set nilai kolom TGL ENTRI (Kolom D / index 4) pada baris baru tersebut dengan string reason
+      if (targetSheetName.toUpperCase().includes("KLAIM MUNDUR") && reason) {
+        destSheet.getRange(newRowNumber, 4).setValue(reason);
+      }
+
+      // Jika targetSheetName memuat 'SKRINING' (Skrining DM):
+      // Update Kolom C (TGL ENTRI / index 3) dan Kolom A (No. Antrean / index 1) pada sheet tujuan
+      if (targetSheetName.toUpperCase().includes("SKRINING")) {
+        const tglVal = payload.tanggal || payload.tglEntri || payload.tglPly || "";
+        if (tglVal) {
+          destSheet.getRange(newRowNumber, 3).setValue(tglVal);
+        }
+        const antreanVal = payload.noAntrean || payload.noAntrian || payload.antrean || "";
+        if (antreanVal) {
+          destSheet.getRange(newRowNumber, 1).setValue(antreanVal);
+        }
+      }
+
+      // Hapus baris asli di sourceSheet menggunakan deleteRow
+      sourceSheet.deleteRow(actualRow);
+      SpreadsheetApp.flush();
+
+      return createJsonResponse({
+        status: "success",
+        movedTo: targetSheetName,
+        newRowNumber: newRowNumber,
+        deletedRow: actualRow,
+        reason: reason
       });
     }
 
