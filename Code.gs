@@ -383,7 +383,7 @@ function doGet(e) {
 
     // Data Kunjungan & Klinis (Prioritas Header Baris 1 -> Baris 7 -> Fallback Tab Aktif)
     const idxKeluhan = getColIdx(["KELUHAN", "KELUHAN UTAMA"], defaultIdxKeluhan);
-    const idxJam = getColIdx(["JAM KUNJUNGAN", "JAM"], 25);                // Kolom Z / AD
+    const idxJam = getColIdx(["JAM KUNJUNGAN", "JAM KUNJUNG"], 25);                // Kolom Z / AD (hindari mencocokkan '2 JAM PP')
     const idxAnamnesa = getColIdx(["ANAMNESA", "ANAMNESIS"], 26);          // Kolom AA / AE
     const idxDiagnosa = getColIdx(["DIAGNOSA", "KODE DIAGNOSA", "ICD10", "ICD-10", "DIAGNOSIS"], defaultIdxDiagnosa);
     const idxSuhu = getColIdx(["SUHU", "TEMPERATUR"], 31);                 // Kolom AF / AJ
@@ -410,32 +410,11 @@ function doGet(e) {
           targetDateStandard = toStandardDDMMYYYY(targetTglParam);
         }
       } else {
-        // Default: Utamakan tanggal hari ini jika ada baris yang bertanggal hari ini
-        const todayStandard = toStandardDDMMYYYY(new Date());
-        let hasToday = false;
-        for (let i = dataValues.length - 1; i >= 0; i--) {
-          const cVal = dataValues[i][idxTglEntri];
-          if (cVal && toStandardDDMMYYYY(cVal) === todayStandard) {
-            hasToday = true;
-            break;
-          }
-        }
-
-        if (hasToday) {
-          targetDateStandard = todayStandard;
-        } else {
-          // Fallback: Cari tanggal pendaftaran terbaru dari baris paling bawah yang memiliki TGL ENTRI
-          for (let i = dataValues.length - 1; i >= 0; i--) {
-            const cVal = dataValues[i][idxTglEntri];
-            if (cVal && formatCellValue(cVal) !== "") {
-              const std = toStandardDDMMYYYY(cVal);
-              if (std) {
-                targetDateStandard = std;
-                break;
-              }
-            }
-          }
-        }
+        // Jika targetTglParam kosong, biarkan targetDateStandard = "" agar bot memproses semua pasien
+        // yang belum selesai secara berurutan dari baris paling atas (misal tgl 1 Oktober) sampai tuntas,
+        // karena content.js sudah menyinkronkan #txttanggal secara otomatis per pasien menggunakan patient.effectiveDate.
+        // Baris yang di-highlight kuning oleh admin tetap diproses (hanya skip jika background merah muda #F4CCCC / #E6B8AF).
+        targetDateStandard = "";
       }
     }
 
@@ -651,7 +630,7 @@ function doGet(e) {
 
       // 6. Data Kunjungan & Klinis (Dinamis Lintas Tab)
       let keluhanVal = formatCellValue(row[idxKeluhan]);
-      const jamKunjunganVal = formatCellValue(row[idxJam]) || "07:00";
+      const jamKunjunganVal = "07:00"; // Wajib jam 07:00 pasti untuk seluruh baris data entri kunjungan
       const anamnesaVal = formatCellValue(row[idxAnamnesa]);
       let diagnosaVal = formatCellValue(row[idxDiagnosa]);
       const suhuVal = formatCellValue(row[idxSuhu]) || "36.0";
