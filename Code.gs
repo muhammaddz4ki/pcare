@@ -1009,9 +1009,9 @@ function doPost(e) {
     const action = String(payload.action || payload.status || "").trim().toUpperCase();
     const rowNumber = Number(payload.rowNumber);
     const noBpjs = payload.noBpjs ? String(payload.noBpjs).trim() : "";
-    const sheetName = payload.sheetName ? String(payload.sheetName).trim() : "";
+    const sheetName = payload.sheetName ? String(payload.sheetName).trim() : (payload.sheetTarget || payload.targetSheet || "");
 
-    const targetSheet = sheetName ? (ss.getSheetByName(sheetName) || ss.getActiveSheet()) : ss.getActiveSheet();
+    const targetSheet = resolveSheet(ss, sheetName, sheetName);
 
     // -----------------------------------------------------------------------------------
     // AKSI 1: HASIL_SELESAI (Pewarnaan latar belakang baris pasien dengan merah muda/salem #F4CCCC & Update TGL ENTRI)
@@ -1204,19 +1204,22 @@ function doPost(e) {
 
     if (jenis) {
       let targetCategory = "";
-      if (jenis.includes("PAP") || jenis.includes("SMEAR")) {
-        targetCategory = "PAPSMEAR";
-      } else if (jenis.includes("SKRINING") || jenis.includes("DM")) {
-        targetCategory = "SKRINING DM";
-      } else if (jenis.includes("PROLANIS")) {
+      // 1. PRIORITAS UTAMA MUTLAK: PROLANIS
+      // Jika memuat kata PROLANIS atau PRB, kategori WAJIB PROLANIS (meskipun ada kata DM atau Diabetes)
+      if (jenis.includes("PROLANIS") || jenis.includes("PRB")) {
         targetCategory = "PROLANIS";
+      } else if (jenis.includes("PAP") || jenis.includes("SMEAR")) {
+        targetCategory = "PAPSMEAR";
+      } else if (jenis.includes("SKRINING")) {
+        // HANYA jika memuat kata SKRINING secara eksplisit dan BUKAN Prolanis
+        targetCategory = "SKRINING DM";
       }
 
       if (targetCategory) {
         const currentUpper = targetSheet.getName().toUpperCase();
         const alreadyMatching =
           (targetCategory === "PROLANIS" && currentUpper.includes("PROLANIS")) ||
-          (targetCategory === "SKRINING DM" && (currentUpper.includes("SKRINING") || currentUpper.includes("DM"))) ||
+          (targetCategory === "SKRINING DM" && currentUpper.includes("SKRINING")) ||
           (targetCategory === "PAPSMEAR" && (currentUpper.includes("PAP") || currentUpper.includes("SMEAR")));
 
         // Pindahkan HANYA jika sheet asal pasien berbeda dengan jenis yang terdeteksi

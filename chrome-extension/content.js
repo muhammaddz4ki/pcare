@@ -8,7 +8,7 @@
  */
 
 // 1. URL Web App Google Apps Script
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwBsijrDMHoo5MG24qaLqdggrSmYyRbXzobCetaODKKYOhssZfT9e8xk9uGcrAll7eofg/exec"
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxjsooepperbgbWr-rwzWTtBuc-XIdYd6JCkAbqMYeQwC3IfgFEIw2XN8h5hkXLoTpliw/exec"
 // Helper delay alias
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -704,29 +704,83 @@ async function clickBatalKunjungan() {
  * Helper: Mengunci jam kunjungan menjadi "07:00" pada seluruh input terkait jam di PCare
  */
 async function enforceJamKunjungan(targetTime = "07:00") {
-  const selectors = [
+  const timeSelectors = [
     "#jamKunjungan_time",
+    "#jamKunjungan",
     "#jamkunjungan",
+    "#txtJam",
     "#txtjam",
-    "input[id*='jam' i]",
-    "input[name*='jam' i]"
+    "input[name*='jam' i]",
+    "input[id*='jam' i]"
   ];
-  for (const sel of selectors) {
-    const elements = document.querySelectorAll(sel);
-    elements.forEach(el => {
-      if (el && (el.tagName === "INPUT" || el.tagName === "SELECT")) {
+
+  timeSelectors.forEach(sel => {
+    const els = document.querySelectorAll(sel);
+    els.forEach(el => {
+      if (el) {
+        el.removeAttribute("readonly");
         el.value = targetTime;
         el.dispatchEvent(new Event("input", { bubbles: true }));
         el.dispatchEvent(new Event("change", { bubbles: true }));
-        el.dispatchEvent(new Event("blur", { bubbles: true }));
-        if (window.jQuery && window.jQuery(el).length) {
-          try {
-            window.jQuery(el).val(targetTime).trigger("change");
-          } catch (e) { }
-        }
       }
     });
+  });
+
+  const $jq = window.jQuery || (typeof $ !== "undefined" ? $ : null);
+  if ($jq) {
+    try {
+      $jq("#jamKunjungan_time, #jamKunjungan, input[name*='jam' i]").val(targetTime).trigger("change");
+    } catch (e) { }
+    try {
+      if (typeof $jq("#jamKunjungan_time").timepicker === "function") {
+        $jq("#jamKunjungan_time").timepicker("setTime", targetTime);
+      }
+    } catch (e) { }
   }
+}
+
+/**
+ * Helper: Mendeteksi apakah notifikasi SweetAlert atau alert teks menyatakan pasien sudah dilayani / pernah dientri
+ */
+function isServedNotificationPresent() {
+  const servedKeywords = [
+    "sudah dilayani",
+    "sudah pernah",
+    "kunjungan sudah ada",
+    "sudah pernah dientri",
+    "sudah disimpan",
+    "telah dilayani"
+  ];
+
+  const modals = document.querySelectorAll(".sweet-alert, .swal2-container, .swal-modal, .bootbox.modal, .modal.in, .modal.show, .toast, .alert");
+  for (const m of modals) {
+    if (isElementVisible(m)) {
+      const mTxt = (m.textContent || "").toLowerCase();
+      if (servedKeywords.some(kw => mTxt.includes(kw))) {
+        const btnConfirm = m.querySelector("button.confirm, .swal2-confirm, button.close, .btn-primary, button") ||
+          document.querySelector(".swal2-confirm, .sweet-alert button.confirm, button.confirm");
+        if (btnConfirm) {
+          btnConfirm.click();
+          btnConfirm.dispatchEvent(new Event("click", { bubbles: true }));
+        }
+        return mTxt;
+      }
+    }
+  }
+
+  const bodyText = (document.body.innerText || "").toLowerCase();
+  for (const kw of servedKeywords) {
+    if (bodyText.includes(kw)) {
+      const btnConfirm = document.querySelector(".swal2-confirm, .sweet-alert button.confirm, button.confirm, .btn-confirm");
+      if (btnConfirm) {
+        btnConfirm.click();
+        btnConfirm.dispatchEvent(new Event("click", { bubbles: true }));
+      }
+      return kw;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -1397,27 +1451,11 @@ async function processSinglePatientKunjungan(patient, searchMode = "kartu", queu
   let isAlreadyServedInSearch = false;
 
   while (Date.now() - startWaitCard < 10000) {
-    // 1. Periksa apakah muncul SweetAlert atau notifikasi bertuliskan "sudah dilayani", "sudah pernah", atau "kunjungan sudah ada"
-    const servedModals = document.querySelectorAll(".sweet-alert, .swal2-container, .swal-modal, .bootbox.modal, .modal.in, .modal.show, .toast, .alert");
-    for (const m of servedModals) {
-      if (isElementVisible(m)) {
-        const mTxt = (m.textContent || "").toLowerCase();
-        if (mTxt.includes("sudah dilayani") || mTxt.includes("sudah pernah") || mTxt.includes("kunjungan sudah ada")) {
-          console.log(`[PCare AutoFiller] [Modul 2] Peringatan pasien sudah dilayani / pernah dientri terdeteksi pada pencarian: "${mTxt.trim()}"`);
-          isAlreadyServedInSearch = true;
-          // Tutup SweetAlert konfirmasi tersebut
-          const btnConfirm = m.querySelector("button.confirm, .swal2-confirm, button.close, .btn-primary, button") ||
-            document.querySelector(".swal2-confirm, .sweet-alert button.confirm, button.confirm");
-          if (btnConfirm) {
-            btnConfirm.click();
-            btnConfirm.dispatchEvent(new Event("click", { bubbles: true }));
-          }
-          await sleep(500);
-          break;
-        }
-      }
-    }
-    if (isAlreadyServedInSearch) {
+    // 1. Periksa apakah muncul SweetAlert atau notifikasi bertuliskan sudah dilayani / pernah dientri
+    const servedNotice = isServedNotificationPresent();
+    if (servedNotice) {
+      console.log(`[PCare AutoFiller] [Modul 2] Peringatan pasien sudah dilayani / pernah dientri terdeteksi pada pencarian: "${servedNotice.trim()}"`);
+      isAlreadyServedInSearch = true;
       break;
     }
 
@@ -1431,7 +1469,7 @@ async function processSinglePatientKunjungan(patient, searchMode = "kartu", queu
       break;
     }
 
-    const kartuEl = document.querySelector('#noKartu_lbl, #lblNoKartu, #noKartu, #noPeserta, #lblNoPeserta');
+    const kartuEl = document.querySelector('#noKartu_lbl, #lblNoKartu, #noKartu, #noPeserta, #lblNoPeserta, .profile-user-info');
     if (kartuEl) {
       const cardText = (kartuEl.textContent || kartuEl.innerText || '').trim();
       const digits = cardText.replace(/\D/g, '');
@@ -1439,6 +1477,19 @@ async function processSinglePatientKunjungan(patient, searchMode = "kartu", queu
         currentPcareCard = digits;
         break;
       }
+    }
+
+    // Cek apakah data pendaftaran (keluhan atau form fisik) sudah otomatis terisi di form kunjungan PCare
+    const keluhanVal = (document.querySelector('#keluhan, textarea[name="keluhan"], input[name="keluhan"]')?.value || '').trim();
+    const tbVal = (document.querySelector('#tinggiBadan, #tb, input[name="tinggiBadan"]')?.value || '').trim();
+    const bbVal = (document.querySelector('#beratBadan, #bb, input[name="beratBadan"]')?.value || '').trim();
+    const sistoleVal = (document.querySelector('#sistole, input[name="sistole"]')?.value || '').trim();
+    const namaVal = (document.querySelector('#nama, #namaPeserta, #lblNama, #lblNamaPeserta')?.textContent ||
+      document.querySelector('#nama, #namaPeserta, #lblNama, #lblNamaPeserta')?.value || '').trim();
+
+    if (keluhanVal.length > 0 || (tbVal && tbVal !== '0') || (bbVal && bbVal !== '0') || (sistoleVal && sistoleVal !== '0') || namaVal.length > 2) {
+      console.log(`[PCare AutoFiller] [Modul 2] Form data kunjungan / keluhan / fisik terdeteksi telah termuat dari pendaftaran.`);
+      break;
     }
     await sleep(400);
   }
@@ -1448,27 +1499,60 @@ async function processSinglePatientKunjungan(patient, searchMode = "kartu", queu
     await sleep(600);
     const tabOpen = Array.from(document.querySelectorAll('#tab_0, #tabDet_10, #tabDet_12, #tabDet_11, #tambahPelayananGulaDarah_btn, a[href="#tabDet_10"], a[href="#tabDet_12"]')).some(el => isElementVisible(el));
     if (tabOpen && targetValues.length > 0) {
-      console.log(`[PCare AutoFiller] [Modul 2] Pasien sudah dilayani sebelumnya dan tab Klaim Non Kapitasi terbuka. Melanjutkan pengisian rincian lab...`);
+      console.log(`[PCare AutoFiller] Pasien ${patient.nama || patient.noBpjs} sudah pernah dilayani di PCare pada tanggal ini dan tab Klaim Non Kapitasi terbuka. Melanjutkan pengisian rincian lab...`);
       showNotification(`Pasien sudah dilayani, melanjutkan rincian lab...`, "info");
       isSkipFormKunjunganToLab = true;
     } else {
-      console.log(`[PCare AutoFiller] [Modul 2] Pasien sudah dilayani sebelumnya dan tab lab tidak terbuka / tidak ada paket lab. Menandai selesai di Sheets...`);
-      showNotification(`Pasien sudah dilayani sebelumnya. Menandai selesai di Sheets...`, "info");
-      await markHasilSelesaiInSheets(patient.rowNumber, noBpjs, patient.sheetName, patient.tglPly, patient.tglHasil, patient.effectiveDate || targetDateStr);
+      console.log(`[PCare AutoFiller] Pasien ${patient.nama || patient.noBpjs} sudah pernah dilayani di PCare pada tanggal ini. Menandai selesai di Sheets...`);
+      showNotification(`Pasien ${patient.nama || patient.noBpjs} sudah dilayani sebelumnya. Menandai selesai di Sheets...`, "info");
+      await markHasilSelesaiInSheets(patient.rowNumber, patient.noBpjs, patient.sheetName, patient.tglPly, patient.tglHasil, targetDateStr);
       return true;
     }
   }
 
   if (!isSkipFormKunjunganToLab) {
-    // Jika currentPcareCard === '': JANGAN PERNAH ISI FORM! Lempar error
-    if (currentPcareCard === '') {
-      console.error(`[PCare AutoFiller] [Modul 2] Timeout: Profil nomor BPJS tidak termuat di PCare untuk ${searchLabel}. Jangan isi form!`);
-      showNotification(`Timeout: Profil nomor BPJS tidak termuat di PCare!`, "error");
-      throw new Error("Timeout: Profil nomor BPJS tidak termuat di PCare.");
+    // Cek apakah notifikasi pasien sudah dilayani muncul sebelum melempar error timeout
+    const servedBeforeTimeout = isServedNotificationPresent();
+    if (servedBeforeTimeout) {
+      console.log(`[PCare AutoFiller] Pasien ${patient.nama || patient.noBpjs} sudah pernah dilayani di PCare pada tanggal ini (${servedBeforeTimeout.trim()}). Menandai selesai di Sheets...`);
+      showNotification(`Pasien ${patient.nama || patient.noBpjs} sudah dilayani sebelumnya. Menandai selesai di Sheets...`, "info");
+      await markHasilSelesaiInSheets(patient.rowNumber, patient.noBpjs, patient.sheetName, patient.tglPly, patient.tglHasil, targetDateStr);
+      return true;
     }
 
-    // Jika currentPcareCard !== sheetNoKartu: Fallback 1x via #rbkartu
-    if (currentPcareCard !== sheetNoKartu) {
+    // Evaluasi apakah data profil atau keluhan / fisik sudah berhasil dimuat oleh PCare
+    const keluhanEl = document.querySelector('#keluhan, textarea[name="keluhan"], input[name="keluhan"]');
+    const tbEl = document.querySelector('#tinggiBadan, #tb, input[name="tinggiBadan"]');
+    const bbEl = document.querySelector('#beratBadan, #bb, input[name="beratBadan"]');
+    const sistoleEl = document.querySelector('#sistole, input[name="sistole"]');
+    const namaEl = document.querySelector('#nama, #namaPeserta, #lblNama, #lblNamaPeserta');
+
+    const hasLoadedPhysicalOrProfile = Boolean(
+      (keluhanEl && (keluhanEl.value || '').trim().length > 0) ||
+      (tbEl && (tbEl.value || '').trim().length > 0 && tbEl.value.trim() !== '0') ||
+      (bbEl && (bbEl.value || '').trim().length > 0 && bbEl.value.trim() !== '0') ||
+      (sistoleEl && (sistoleEl.value || '').trim().length > 0 && sistoleEl.value.trim() !== '0') ||
+      (namaEl && (namaEl.textContent || namaEl.value || '').trim().length > 2)
+    );
+
+    const kartuEl = document.querySelector('#noKartu_lbl, #lblNoKartu, #noKartu, #noPeserta, #lblNoPeserta, .profile-user-info');
+    if (kartuEl && !currentPcareCard) {
+      currentPcareCard = (kartuEl.textContent || kartuEl.innerText || '').replace(/\D/g, '');
+    }
+
+    // 1. Jika pencarian menggunakan No. Kartu BPJS (searchMode === "kartu"):
+    // PCare mencari langsung berdasarkan nomor kartu unik tersebut.
+    // Jika keluhan (#keluhan) atau form fisik (#tinggiBadan, dll) sudah terisi nilai, MAKA PASIEN SUDAH PASTI VALID!
+    // Lanjutkan pengisian form tanpa melempar error.
+    if (searchMode === 'kartu' && hasLoadedPhysicalOrProfile) {
+      console.log(`[PCare AutoFiller] [Modul 2] Pencarian via No. Kartu BPJS berhasil memuat data pendaftaran/fisik pasien. Pasien valid, melanjutkan form.`);
+    } else if (!currentPcareCard && !hasLoadedPhysicalOrProfile) {
+      // JANGAN PERNAH ISI FORM jika benar-benar tidak ada data yang termuat sama sekali
+      console.error(`[PCare AutoFiller] [Modul 2] Timeout: Data pasien / profil tidak termuat di PCare untuk ${searchLabel}. Jangan isi form!`);
+      showNotification(`Timeout: Data pasien tidak termuat di PCare!`, "error");
+      throw new Error("Timeout: Data pasien tidak termuat di PCare.");
+    } else if (currentPcareCard && sheetNoKartu && !currentPcareCard.includes(sheetNoKartu.slice(-8))) {
+      // Hanya lakukan verifikasi nomor kartu jika elemen kartu benar-benar ditemukan dan jelas-jelas nomor kartu beda orang
       console.warn(`[PCare AutoFiller] Data tertukar/tidak cocok! Terbaca ${currentPcareCard}, seharusnya ${sheetNoKartu}. Mencoba fallback 1x via No. Kartu BPJS...`);
       showNotification(`Data tidak cocok (${currentPcareCard} != ${sheetNoKartu})! Fallback ke No. Kartu...`, "warning");
 
@@ -1509,25 +1593,12 @@ async function processSinglePatientKunjungan(patient, searchMode = "kartu", queu
       const startWaitFallback = Date.now();
       let fallbackPcareCard = "";
       while (Date.now() - startWaitFallback < 6000) {
-        const servedModals = document.querySelectorAll(".sweet-alert, .swal2-container, .swal-modal, .bootbox.modal, .modal.in, .modal.show, .toast, .alert");
-        for (const m of servedModals) {
-          if (isElementVisible(m)) {
-            const mTxt = (m.textContent || "").toLowerCase();
-            if (mTxt.includes("sudah dilayani") || mTxt.includes("sudah pernah") || mTxt.includes("kunjungan sudah ada")) {
-              console.log(`[PCare AutoFiller] [Modul 2] Notifikasi pasien sudah dilayani / pernah dientri terdeteksi pada fallback: "${mTxt.trim()}"`);
-              isAlreadyServedInSearch = true;
-              const btnConfirm = m.querySelector("button.confirm, .swal2-confirm, button.close, .btn-primary, button") ||
-                document.querySelector(".swal2-confirm, .sweet-alert button.confirm, button.confirm");
-              if (btnConfirm) {
-                btnConfirm.click();
-                btnConfirm.dispatchEvent(new Event("click", { bubbles: true }));
-              }
-              await sleep(500);
-              break;
-            }
-          }
+        const servedNoticeFallback = isServedNotificationPresent();
+        if (servedNoticeFallback) {
+          console.log(`[PCare AutoFiller] [Modul 2] Notifikasi pasien sudah dilayani / pernah dientri terdeteksi pada fallback: "${servedNoticeFallback.trim()}"`);
+          isAlreadyServedInSearch = true;
+          break;
         }
-        if (isAlreadyServedInSearch) break;
 
         const kartuEl = document.querySelector('#noKartu_lbl, #lblNoKartu, #noKartu, #noPeserta, #lblNoPeserta');
         if (kartuEl) {
@@ -1547,29 +1618,42 @@ async function processSinglePatientKunjungan(patient, searchMode = "kartu", queu
         await sleep(600);
         const tabOpen = Array.from(document.querySelectorAll('#tab_0, #tabDet_10, #tabDet_12, #tabDet_11, #tambahPelayananGulaDarah_btn, a[href="#tabDet_10"], a[href="#tabDet_12"]')).some(el => isElementVisible(el));
         if (tabOpen && targetValues.length > 0) {
-          console.log(`[PCare AutoFiller] [Modul 2] Pasien sudah dilayani sebelumnya (fallback) dan tab Klaim Non Kapitasi terbuka. Melanjutkan pengisian rincian lab...`);
+          console.log(`[PCare AutoFiller] Pasien ${patient.nama || patient.noBpjs} sudah pernah dilayani di PCare pada tanggal ini (fallback) dan tab Klaim Non Kapitasi terbuka. Melanjutkan pengisian rincian lab...`);
           showNotification(`Pasien sudah dilayani, melanjutkan rincian lab...`, "info");
           isSkipFormKunjunganToLab = true;
         } else {
-          console.log(`[PCare AutoFiller] [Modul 2] Pasien sudah dilayani sebelumnya (fallback) dan tab lab tidak terbuka / tidak ada paket lab. Menandai selesai di Sheets...`);
-          showNotification(`Pasien sudah dilayani sebelumnya. Menandai selesai di Sheets...`, "info");
-          await markHasilSelesaiInSheets(patient.rowNumber, noBpjs, patient.sheetName, patient.tglPly, patient.tglHasil, patient.effectiveDate || targetDateStr);
+          console.log(`[PCare AutoFiller] Pasien ${patient.nama || patient.noBpjs} sudah pernah dilayani di PCare pada tanggal ini. Menandai selesai di Sheets...`);
+          showNotification(`Pasien ${patient.nama || patient.noBpjs} sudah dilayani sebelumnya. Menandai selesai di Sheets...`, "info");
+          await markHasilSelesaiInSheets(patient.rowNumber, patient.noBpjs, patient.sheetName, patient.tglPly, patient.tglHasil, targetDateStr);
           return true;
         }
       }
 
       if (!isSkipFormKunjunganToLab) {
-        if (fallbackPcareCard !== sheetNoKartu) {
+        const servedBeforeFallbackErr = isServedNotificationPresent();
+        if (servedBeforeFallbackErr) {
+          console.log(`[PCare AutoFiller] Pasien ${patient.nama || patient.noBpjs} sudah pernah dilayani di PCare pada tanggal ini (fallback). Menandai selesai di Sheets...`);
+          showNotification(`Pasien ${patient.nama || patient.noBpjs} sudah dilayani sebelumnya. Menandai selesai di Sheets...`, "info");
+          await markHasilSelesaiInSheets(patient.rowNumber, patient.noBpjs, patient.sheetName, patient.tglPly, patient.tglHasil, targetDateStr);
+          return true;
+        }
+
+        const hasFallbackPhysical = Boolean(
+          (document.querySelector('#keluhan, textarea[name="keluhan"]')?.value || '').trim().length > 0 ||
+          (document.querySelector('#tinggiBadan, input[name="tinggiBadan"]')?.value || '').trim() !== '0'
+        );
+
+        if (fallbackPcareCard && !fallbackPcareCard.includes(sheetNoKartu.slice(-8)) && !hasFallbackPhysical) {
           console.error(`[PCare AutoFiller] [ERROR] Fallback gagal: Nomor kartu tetap tidak cocok (PCare: "${fallbackPcareCard || 'Kosong'}" != Sheet: "${sheetNoKartu}"). JANGAN ISI FORM!`);
           showNotification(`[ERROR] Pasien ${patient.nama || sheetNoKartu} tidak cocok di PCare! Dibatalkan.`, "error");
           throw new Error(`Data pasien tidak cocok dengan sheet PCare (${fallbackPcareCard || 'Kosong'} != ${sheetNoKartu}). Dibatalkan demi keamanan.`);
         }
 
-        currentPcareCard = fallbackPcareCard;
-        console.log(`[PCare AutoFiller] [SUKSES] Fallback No. Kartu berhasil cocok: ${sheetNoKartu} (${patient.nama || '-'}).`);
+        currentPcareCard = fallbackPcareCard || currentPcareCard;
+        console.log(`[PCare AutoFiller] [SUKSES] Fallback No. Kartu berhasil: ${sheetNoKartu} (${patient.nama || '-'}).`);
       }
     } else {
-      console.log(`[PCare AutoFiller] [SUKSES] Profil nomor kartu cocok: ${sheetNoKartu} (${patient.nama || '-'}). Melanjutkan pengisian form.`);
+      console.log(`[PCare AutoFiller] [SUKSES] Profil nomor kartu cocok / form fisik terverifikasi: ${sheetNoKartu} (${patient.nama || '-'}). Melanjutkan pengisian form.`);
     }
   }
 
@@ -1580,6 +1664,9 @@ async function processSinglePatientKunjungan(patient, searchMode = "kartu", queu
     // TAHAP 2: PENGISIAN FORM KUNJUNGAN UTAMA
     // -------------------------------------------------------------
     console.log(`[PCare AutoFiller] [Modul 2] Step 2: Mengisi Form Kunjungan Utama...`);
+    // Kunci paten jam kunjungan ke "07:00" setelah profil pasien selesai dimuat dari AJAX
+    await enforceJamKunjungan("07:00");
+    await sleep(200);
 
     // 1. SMART AUTO-DETECT STATUS KEPESERTAAN DI PCARE (PROLANIS vs SKRINING)
     const isProlanis = checkIsProlanisInKunjungan(patient);
@@ -1829,13 +1916,12 @@ async function processSinglePatientKunjungan(patient, searchMode = "kartu", queu
 
     // 1e. Catat No. Kunjungan awal dan pastikan tanggal serta jam kunjungan terkunci tepat 300ms sebelum simpan
     const initialNoKunjungan = extractNoKunjunganFromScreen(targetDateStr);
-    // TITIK C: Tepat 300ms SEBELUM mengeklik tombol Simpan Kunjungan (#btnSimpan)
     await enforceTanggalKunjungan(targetDateStr);
+    await delay(700);
+
+    // Kunci paten jam kunjungan tepat 300ms SEBELUM mengeklik tombol Simpan Kunjungan (#btnSimpan)
     await enforceJamKunjungan("07:00");
     await sleep(300);
-
-    // Jeda napas setelah semua field terisi dan tanggal terkunci
-    await delay(1000);
 
     // Simpan Kunjungan (#btnSimpan)
     console.log(`[PCare AutoFiller] [Modul 2] Mengklik tombol Simpan Kunjungan (#btnSimpan)...`);
@@ -1854,25 +1940,15 @@ async function processSinglePatientKunjungan(patient, searchMode = "kartu", queu
 
     while (Date.now() - saveVerifyStart < 10000) {
       // Penanganan Pasien yang Sudah Dientri Manual di PCare:
-      // Cek apakah muncul SweetAlert atau notifikasi bertuliskan "sudah dilayani", "sudah pernah dientri", atau "kunjungan sudah ada"
-      const modals = document.querySelectorAll(".sweet-alert, .swal2-container, .swal-modal, .bootbox.modal, .modal.in, .modal.show, .toast, .alert");
-      for (const m of modals) {
-        if (isElementVisible(m)) {
-          const mTxt = (m.textContent || "").toLowerCase();
-          if (mTxt.includes("sudah dilayani") || mTxt.includes("sudah pernah dientri") || mTxt.includes("kunjungan sudah ada")) {
-            console.log(`[PCare AutoFiller] [Modul 2] Notifikasi pasien sudah pernah dientri / sudah dilayani terdeteksi: "${mTxt.trim()}"`);
-            isAlreadyServed = true;
-            // Tutup SweetAlert konfirmasi tersebut
-            const btnConfirm = m.querySelector("button.confirm, .swal2-confirm, button.close, .btn-primary, button") ||
-              document.querySelector(".swal2-confirm, .sweet-alert button.confirm, button.confirm");
-            if (btnConfirm) {
-              btnConfirm.click();
-              btnConfirm.dispatchEvent(new Event("click", { bubbles: true }));
-            }
-            await sleep(500);
-            break;
-          }
-        }
+      // Cek apakah muncul SweetAlert atau notifikasi bertuliskan sudah dilayani / pernah dientri
+      const servedNotice = isServedNotificationPresent();
+      if (servedNotice) {
+        console.log(`[PCare AutoFiller] Pasien ${patient.nama || patient.noBpjs} sudah pernah dilayani di PCare pada tanggal ini. Menandai selesai di Sheets...`);
+        showNotification(`Pasien ${patient.nama || patient.noBpjs} sudah pernah dilayani di PCare pada tanggal ini.`, "info");
+        isAlreadyServed = true;
+        isVisitSaved = true;
+        await sleep(500);
+        break;
       }
 
       if (isAlreadyServed) {
@@ -1931,11 +2007,13 @@ async function processSinglePatientKunjungan(patient, searchMode = "kartu", queu
 
     // Penanganan Pasien yang Sudah Dientri Manual di PCare:
     if (isAlreadyServed) {
+      console.log(`[PCare AutoFiller] Pasien ${patient.nama || patient.noBpjs} sudah pernah dilayani di PCare pada tanggal ini. Menandai selesai di Sheets...`);
+      showNotification(`Pasien ${patient.nama || patient.noBpjs} sudah pernah dilayani di PCare pada tanggal ini. Menandai selesai di Sheets...`, "info");
       const tabOpen = Array.from(document.querySelectorAll('#tab_0, #tabDet_10, #tabDet_12, #tabDet_11, #tambahPelayananGulaDarah_btn, a[href="#tabDet_10"], a[href="#tabDet_12"]')).some(el => isElementVisible(el));
-      if (!tabOpen) {
-        console.log(`[PCare AutoFiller] [Modul 2] Pasien sudah dilayani sebelumnya dan form lab tidak terbuka. Langsung menandai selesai di Sheets...`);
-        showNotification(`Pasien sudah dilayani sebelumnya. Menandai selesai di Sheets...`, "info");
-        await markHasilSelesaiInSheets(patient.rowNumber, noBpjs, patient.sheetName, patient.tglPly, patient.tglHasil, patient.effectiveDate || targetDateStr);
+      if (tabOpen && targetValues.length > 0) {
+        console.log(`[PCare AutoFiller] [Modul 2] Tab lab terbuka dan nilai lab pasien di sheet belum lengkap diinput. Melanjutkan eksekusi lab...`);
+      } else {
+        await markHasilSelesaiInSheets(patient.rowNumber, patient.noBpjs, patient.sheetName, patient.tglPly, patient.tglHasil, targetDateStr);
         return true;
       }
     }
@@ -1985,6 +2063,7 @@ async function processSinglePatientKunjungan(patient, searchMode = "kartu", queu
 
   return true;
 }
+
 
 /**
  * Sub-Modul A: Pelayanan Kimia Darah
@@ -2837,7 +2916,7 @@ async function runAutoFillProcess(filterTgl = "", limit = 0, sheetTarget = "PROL
           const dateToSync = patient.actualRegisteredDate || convertToDDMMYYYY(patient.tglPly || filterTgl || new Date());
           const antreanResult = (injectResult && injectResult.noAntrean) ? String(injectResult.noAntrean).trim() : "";
           console.log(`[PCare AutoFiller] [UPDATE] Mengirim tanggal ${dateToSync} & antrean ${antreanResult || '-'} ke Sheets baris ${patient.rowNumber}...`);
-          await updateTanggalEntriSheets(
+          const updateSuccess = await updateTanggalEntriSheets(
             patient.rowNumber,
             patient.detectedJenis || "",
             formattedNoBpjs,
@@ -2845,8 +2924,16 @@ async function runAutoFillProcess(filterTgl = "", limit = 0, sheetTarget = "PROL
             dateToSync,
             antreanResult
           );
+          if (updateSuccess) {
+            console.log(`[PCare AutoFiller] [UPDATE SUKSES] Baris ${patient.rowNumber} (${patient.nama || formattedNoBpjs}) berhasil diperbarui di spreadsheet!`);
+            showNotification(`[SUKSES] Baris ${patient.rowNumber} (${patient.nama || formattedNoBpjs}) berhasil diupdate di Sheets (Tgl: ${dateToSync}, Antrean: ${antreanResult || '-'})`, "success");
+          } else {
+            console.warn(`[PCare AutoFiller] [UPDATE GAGAL] Baris ${patient.rowNumber} tidak terupdate di spreadsheet.`);
+            showNotification(`[PERINGATAN] Gagal update Sheets baris ${patient.rowNumber}`, "warning");
+          }
         } catch (updateErr) {
           console.error(`[PCare AutoFiller] Gagal update TGL ENTRI ke Sheets untuk pasien ${patient.nama || formattedNoBpjs}:`, updateErr);
+          showNotification(`[ERROR] Gagal update Sheets baris ${patient.rowNumber}: ${updateErr.message}`, "error");
         }
         await resetFormPendaftaran();
         console.log(`[PCare AutoFiller] Menyiapkan pasien berikutnya (jeda stabil 2.5 detik)...`);
@@ -2991,14 +3078,25 @@ function extractPendaftaranQueueNumber() {
     }
   }
 
-  // 3. Cek baris tabel pendaftaran terbaru di halaman jika ada
-  const tableRows = document.querySelectorAll("#tablePendaftaran tbody tr, #gridPendaftaran tbody tr, .table tbody tr");
+  // 3. Cek baris tabel pendaftaran di halaman (#tableDaftarPeserta, #tablePendaftaran, .table tbody tr)
+  const tableRows = document.querySelectorAll("#tableDaftarPeserta tbody tr, #tablePendaftaran tbody tr, #gridPendaftaran tbody tr, .table tbody tr");
   if (tableRows && tableRows.length > 0) {
+    // Nomor antrean pasien baru masuk di baris TERAKHIR tabel riwayat
+    const lastRow = tableRows[tableRows.length - 1];
+    const lastCol = lastRow.querySelector("td");
+    if (lastCol) {
+      const colText = (lastCol.textContent || "").trim();
+      if (/^[A-Za-z]?\s*\d+/.test(colText)) {
+        return colText;
+      }
+    }
+
+    // Fallback cek baris pertama jika tabel diurutkan descending
     const firstRow = tableRows[0];
     const firstCol = firstRow.querySelector("td");
     if (firstCol) {
       const colText = (firstCol.textContent || "").trim();
-      if (/^[A-Za-z]?\s*\d+$/.test(colText)) {
+      if (/^[A-Za-z]?\s*\d+/.test(colText)) {
         return colText;
       }
     }
@@ -3339,12 +3437,12 @@ async function injectPatientData(data, customDate = "", sheetTarget = "PROLANIS"
   // Jeda awal 500ms
   await sleep(500);
 
-  // Polling verifikasi simpan ketat (Strict Success Verification) selama maksimal 10 detik
+  // Polling verifikasi simpan ketat (Strict Success Verification) selama maksimal 8 detik
   let isSavedSuccess = false;
   let noAntrean = "";
   const pollStart = Date.now();
 
-  while (Date.now() - pollStart < 10000) {
+  while (Date.now() - pollStart < 8000) {
     // 1. Cek apakah setelah submit muncul dialog penolakan fatal PCare (Klaim Mundur)
     const fatalRej = await checkPendaftaranDialogRejection();
     if (fatalRej) {
@@ -3357,33 +3455,52 @@ async function injectPatientData(data, customDate = "", sheetTarget = "PROLANIS"
       return { success: false, moved: true, target: "KLAIM MUNDUR", reason: reason };
     }
 
-    // 2. Cek apakah modal konfirmasi SweetAlert sukses muncul
-    const successModal = document.querySelector(".swal2-success, .sa-success, .sweet-alert, .swal2-container, .bootbox.modal, .modal.in, .modal.show");
+    // 2. Kondisi a: Muncul elemen/badge yang memuat teks "Success", "Berhasil", "Tersimpan", atau icon centang hijau
+    const successBadges = document.querySelectorAll(
+      ".label-success, .badge-success, .alert-success, #toast-container .toast-success, .toast-success, .swal2-success, .sa-success, .sweet-alert, .swal2-container, .bootbox.modal, .modal.in, .modal.show"
+    );
     let hasSuccessSignal = false;
-    if (successModal && isElementVisible(successModal)) {
-      const modalTxt = (successModal.textContent || "").toLowerCase();
-      if (
-        modalTxt.includes("berhasil") ||
-        modalTxt.includes("sukses") ||
-        modalTxt.includes("tersimpan") ||
-        modalTxt.includes("pendaftaran berhasil")
-      ) {
-        hasSuccessSignal = true;
+    for (const el of successBadges) {
+      if (isElementVisible(el)) {
+        const elTxt = (el.textContent || "").toLowerCase();
+        if (
+          elTxt.includes("success") ||
+          elTxt.includes("berhasil") ||
+          elTxt.includes("sukses") ||
+          elTxt.includes("tersimpan") ||
+          elTxt.includes("pendaftaran berhasil") ||
+          el.querySelector(".fa-check, .glyphicon-ok, .sa-success, .swal2-success")
+        ) {
+          hasSuccessSignal = true;
+          break;
+        }
       }
     }
 
-    // 3. Ekstrak nomor antrean
-    noAntrean = extractPendaftaranQueueNumber();
+    // 3. Kondisi b: Ditemukan baris baru di tabel pendaftaran (#tableDaftarPeserta, #tablePendaftaran, .table tbody tr). Ambil nomor antrean dari BARIS TERAKHIR tabel
+    const rows = document.querySelectorAll('#tableDaftarPeserta tbody tr, #tablePendaftaran tbody tr, #gridPendaftaran tbody tr, .table tbody tr');
+    if (rows.length > 0) {
+      const lastRow = rows[rows.length - 1];
+      const antreanText = (lastRow.querySelector('td')?.textContent || '').trim();
+      if (/^[A-Za-z]?\s*\d+/.test(antreanText)) {
+        noAntrean = antreanText;
+      }
+    }
+
+    if (!noAntrean) {
+      noAntrean = extractPendaftaranQueueNumber();
+    }
 
     if (hasSuccessSignal || noAntrean) {
       isSavedSuccess = true;
+      console.log(`[PCare AutoFiller] [Modul 1] Pendaftaran berhasil diverifikasi! No. Antrean: "${noAntrean || '-'}", Sinyal Sukses: ${hasSuccessSignal}`);
       break;
     }
 
     await sleep(400);
   }
 
-  // JIKA dalam 10 detik tidak ada respon sukses / form tertahan error:
+  // JIKA dalam 8 detik tidak ada respon sukses / form tertahan error:
   if (!isSavedSuccess) {
     console.error(`[PCare AutoFiller] Pendaftaran ${data.nama || noBpjs} gagal/timeout di PCare. TGL ENTRI dibiarkan kosong.`);
     showNotification(`Pendaftaran ${data.nama || noBpjs} gagal tersimpan di PCare. TGL ENTRI tidak diisi.`, "warning");
@@ -3395,25 +3512,20 @@ async function injectPatientData(data, customDate = "", sheetTarget = "PROLANIS"
   await closePendaftaranSuccessDialog();
   await resetFormPendaftaran();
 
-  // Evaluasi Target Skrining DM (Kasus Warsiti, Tri Heni, Sum Siswaningrum, dll)
-  const lrData = data.labResults || extractLabResults(data);
-  const hasGulaOnlyWithoutProlanis = Boolean(
-    (lrData.gdp || lrData.gdpp || lrData.gds || data.rawCols?.V || data.rawCols?.W || data.rawCols?.X || data.rawCols?.GDP || data.rawCols?.GDPP || data.rawCols?.GDS) &&
-    !lrData.hba1c && !data.rawCols?.U && !data.rawCols?.HBA1C &&
-    !lrData.cho && !data.rawCols?.N && !data.rawCols?.CHO &&
-    detectedJenis !== "PROLANIS"
+  // Evaluasi Proteksi Pasien Prolanis vs Target Skrining DM:
+  const isExplicitProlanis = Boolean(
+    rawDiag.includes("e11.9") || rawDiag.includes("e119") || rawDiag.includes("i10") ||
+    rawKeluhan.includes("diabetes") || rawKeluhan.includes("hipertensi") ||
+    detectedJenis === "PROLANIS"
   );
 
-  const isSkriningTarget = Boolean(
+  const isSkriningTarget = !isExplicitProlanis && Boolean(
     data.isDuplicateSameDay ||
     data.isSkrining ||
-    String(data.diagnosa || data.rawCols?.AI || data.rawCols?.Y || "").toLowerCase().replace(/\s+/g, "").includes("z13.1") ||
-    String(data.diagnosa || "").toLowerCase().replace(/\s+/g, "").includes("z131") ||
-    String(data.keluhan || data.rawCols?.AD || data.rawCols?.T || "").toLowerCase().includes("skrining") ||
-    String(data.pelayananNonKapitasi || "").toLowerCase().includes("skrining") ||
-    String(data.pelayananNonKapitasi || "").toLowerCase().includes("penapisan") ||
-    detectedJenis === "SKRINING DM" ||
-    hasGulaOnlyWithoutProlanis
+    rawDiag.includes("z13.1") || rawDiag.includes("z131") ||
+    rawKeluhan.includes("skrining") ||
+    rawPelayanan.includes("skrining") || rawPelayanan.includes("penapisan") ||
+    detectedJenis === "SKRINING DM"
   );
 
   // Khusus Pasien Skrining DM: Pindahkan ke Sheet 'SKRINING DM OKTOBER 2026'
@@ -3590,8 +3702,16 @@ function checkFormKunjunganSaveError() {
       const textLower = text.toLowerCase();
 
       // Abaikan jika dialog menyatakan sukses/berhasil/tersimpan atau sudah dilayani / sudah pernah dientri / kunjungan sudah ada
+      const servedKeywords = [
+        "sudah dilayani",
+        "sudah pernah",
+        "kunjungan sudah ada",
+        "sudah pernah dientri",
+        "sudah disimpan",
+        "telah dilayani"
+      ];
       if (textLower.includes("berhasil") || textLower.includes("sukses") || textLower.includes("tersimpan") ||
-        textLower.includes("sudah dilayani") || textLower.includes("sudah pernah dientri") || textLower.includes("kunjungan sudah ada")) {
+        servedKeywords.some(kw => textLower.includes(kw))) {
         continue;
       }
 
