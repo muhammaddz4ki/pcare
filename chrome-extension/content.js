@@ -1005,11 +1005,12 @@ async function runEntriKunjunganProcess(filterTgl = "", searchMode = "kartu", li
         showNotification(`[PERINGATAN] Gagal: ${idLabel} (${err.message})`, "warning");
       }
 
-      // Sebelum memproses antrean berikutnya (D2), klik tombol Batal pada form kunjungan agar isian sebelumnya bersih, beri jeda await delay(1500), lalu panggil antrean berikutnya
+      // Sebelum memproses antrean berikutnya, klik tombol Batal pada form kunjungan agar isian sebelumnya bersih, lalu beri jeda istirahat stabil 2.5 detik
       if (i < labPatients.length - 1) {
-        console.log(`[PCare AutoFiller] [Modul 2] Menyiapkan antrean berikutnya (Antrean #${i + 2})... Mengklik Batal & jeda 1.5 detik.`);
-        showNotification(`Membersihkan form sebelum Antrean #${i + 2}...`, "info");
+        console.log(`[PCare AutoFiller] [Modul 2] Menyiapkan antrean berikutnya (Antrean #${i + 2})... Mengklik Batal & jeda stabil 2.5 detik.`);
         await clickBatalKunjungan();
+        showNotification("Menyiapkan pasien berikutnya (jeda stabil 2.5 detik)...", "info");
+        await delay(2500);
       }
     }
 
@@ -1181,6 +1182,9 @@ async function selectDiagnosaPCare(targetCode) {
     }
   }
 
+  // Jeda agar menu autocomplete selesai ditarik dari server BPJS
+  await delay(800);
+
   // 4 & 5. Polling dinamis hingga maksimal 3000ms (interval 200ms) menunggu opsi dropdown autocomplete muncul dan visible
   const autocompleteMenuSelectors = [
     ".ui-autocomplete:not([style*='display: none']) .ui-menu-item",
@@ -1216,13 +1220,13 @@ async function selectDiagnosaPCare(targetCode) {
     clickTarget.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
     clickTarget.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
     clickTarget.click();
-    await sleep(300);
+    await delay(600);
   } else {
     // Jika dropdown visual tidak muncul, trigger event Enter
     diagInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
     diagInput.dispatchEvent(new KeyboardEvent("keypress", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
     diagInput.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
-    await sleep(200);
+    await delay(600);
   }
 
   // 6. Trigger final events change, focusout, blur
@@ -1236,7 +1240,7 @@ async function selectDiagnosaPCare(targetCode) {
     } catch (e) { }
   }
 
-  await sleep(300);
+  await delay(600);
   console.log(`[PCare AutoFiller] [Diagnosa] Berhasil menetapkan kode diagnosa: "${cleanCode}".`);
   return true;
 }
@@ -1320,7 +1324,7 @@ async function processSinglePatientKunjungan(patient, searchMode = "kartu", queu
   // 1c. Set Poli Tujuan ke "004" (LABORATORIUM) jika belum
   console.log(`[PCare AutoFiller] [Modul 2] Step 1: Mengatur Poli Tujuan ke '004' (LABORATORIUM)...`);
   safeSelect(SELECTORS_KUNJUNGAN.poli, "004");
-  await sleep(300);
+  await delay(600);
 
   // TITIK B: Tepat sebelum memasukkan nomor dan menekan tombol cari (#btnCari / Enter)
   await enforceTanggalKunjungan(targetDateStr);
@@ -1376,6 +1380,8 @@ async function processSinglePatientKunjungan(patient, searchMode = "kartu", queu
   } else {
     console.warn("[Modul 2] Tombol cari tidak ditemukan secara langsung, mengandalkan event Enter.");
   }
+  // Jeda tunggu awal setelah klik cari sebelum mulai memeriksa data profil peserta
+  await delay(1200);
 
   // -------------------------------------------------------------
   // VALIDASI IDENTITAS KETAT & ANTI FALSE-LOADED (STRICT IDENTITY MATCH)
@@ -1496,6 +1502,8 @@ async function processSinglePatientKunjungan(patient, searchMode = "kartu", queu
       } else if (fallbackNomorEl) {
         fallbackNomorEl.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
       }
+      // Jeda tunggu awal setelah klik cari fallback
+      await delay(1200);
 
       // Tunggu maksimal 6 detik
       const startWaitFallback = Date.now();
@@ -1791,7 +1799,8 @@ async function processSinglePatientKunjungan(patient, searchMode = "kartu", queu
         el.dispatchEvent(new Event('change', { bubbles: true }));
       }
     }
-    await sleep(300);
+    // Jeda setelah pemilihan Tenaga Medis agar sinkronisasi form stabil
+    await delay(600);
 
     // 3. Pemilihan Paket Non-Kapitasi Wajib Eksklusif Sesuai Baris Pasien (#listNonKapitasi_slc):
     // Menggunakan targetValues yang telah ditentukan di awal proses
@@ -1815,7 +1824,8 @@ async function processSinglePatientKunjungan(patient, searchMode = "kartu", queu
         $jqPCare('#listNonKapitasi_slc').val(targetValues).trigger('change');
       } catch (e) { }
     }
-    await delay(500);
+    // Jeda setelah Paket Non-Kapitasi dipilih agar kalkulasi tarif PCare selesai di latar belakang
+    await delay(600);
 
     // 1e. Catat No. Kunjungan awal dan pastikan tanggal serta jam kunjungan terkunci tepat 300ms sebelum simpan
     const initialNoKunjungan = extractNoKunjunganFromScreen(targetDateStr);
@@ -1823,6 +1833,9 @@ async function processSinglePatientKunjungan(patient, searchMode = "kartu", queu
     await enforceTanggalKunjungan(targetDateStr);
     await enforceJamKunjungan("07:00");
     await sleep(300);
+
+    // Jeda napas setelah semua field terisi dan tanggal terkunci
+    await delay(1000);
 
     // Simpan Kunjungan (#btnSimpan)
     console.log(`[PCare AutoFiller] [Modul 2] Mengklik tombol Simpan Kunjungan (#btnSimpan)...`);
@@ -1833,13 +1846,13 @@ async function processSinglePatientKunjungan(patient, searchMode = "kartu", queu
     }
 
     // 2. Bukti Sukses Wajib (Strict Kunjungan Save Verification):
-    // Polling maksimal 8 detik setelah klik #btnSimpan untuk memastikan kunjungan benar-benar tersimpan
+    // Polling maksimal 10 detik setelah klik #btnSimpan untuk memastikan kunjungan benar-benar tersimpan
     let isVisitSaved = false;
     let finalNoKunjungan = "";
     let isAlreadyServed = false;
     const saveVerifyStart = Date.now();
 
-    while (Date.now() - saveVerifyStart < 8000) {
+    while (Date.now() - saveVerifyStart < 10000) {
       // Penanganan Pasien yang Sudah Dientri Manual di PCare:
       // Cek apakah muncul SweetAlert atau notifikasi bertuliskan "sudah dilayani", "sudah pernah dientri", atau "kunjungan sudah ada"
       const modals = document.querySelectorAll(".sweet-alert, .swal2-container, .swal-modal, .bootbox.modal, .modal.in, .modal.show, .toast, .alert");
@@ -2772,20 +2785,23 @@ async function runAutoFillProcess(filterTgl = "", limit = 0, sheetTarget = "PROL
             movedSkriningCount++;
             console.log(`[PCare AutoFiller] Pasien Skrining DM (${patient.nama || formattedNoBpjs}) sukses daftar -> Dipotong ke Sheet SKRINING DM OKTOBER 2026`);
             showNotification(`Pasien Skrining DM (${patient.nama || formattedNoBpjs}) sukses daftar -> Dipotong ke Sheet SKRINING DM OKTOBER 2026`, "success");
-            await sleep(1000);
+            showNotification("Menyiapkan pasien berikutnya (jeda stabil 2.5 detik)...", "info");
+            await delay(2500);
             continue;
           } else if (injectResult.target && injectResult.target.includes("KLAIM MUNDUR")) {
             klaimMundurCount++;
             console.log(`[PCare AutoFiller] Pasien baris ${patient.rowNumber} gagal didaftarkan -> Dipindahkan ke KLAIM MUNDUR (${injectResult.reason || '-'})`);
             showNotification(`[PERINGATAN] Pasien dipindahkan ke KLAIM MUNDUR`, "warning");
-            await sleep(1000);
+            showNotification("Menyiapkan pasien berikutnya (jeda stabil 2.5 detik)...", "info");
+            await delay(2500);
             continue;
           } else {
             // Pap Smear dialihkan ke sheet PAPSMEAR tanpa didaftarkan
             skippedCount++;
             console.log(`[PCare AutoFiller] Pasien baris ${patient.rowNumber} dialihkan: ${injectResult.target}`);
             showNotification(`[INFO] Pasien dipindahkan ke ${injectResult.target}`, "info");
-            await sleep(1000);
+            showNotification("Menyiapkan pasien berikutnya (jeda stabil 2.5 detik)...", "info");
+            await delay(2500);
             continue;
           }
         }
@@ -2795,6 +2811,8 @@ async function runAutoFillProcess(filterTgl = "", limit = 0, sheetTarget = "PROL
           console.error(`[PCare AutoFiller] Pendaftaran ${patient.nama || formattedNoBpjs} gagal/timeout di PCare. TGL ENTRI dibiarkan kosong.`);
           showNotification(`Pendaftaran ${patient.nama || formattedNoBpjs} gagal tersimpan di PCare. TGL ENTRI tidak diisi.`, "warning");
           await resetFormPendaftaran();
+          showNotification("Menyiapkan pasien berikutnya (jeda stabil 2.5 detik)...", "info");
+          await delay(2500);
           continue;
         }
 
@@ -2806,6 +2824,8 @@ async function runAutoFillProcess(filterTgl = "", limit = 0, sheetTarget = "PROL
         console.error(`[PCare AutoFiller] Gagal memproses pasien ${patientName}: ${err.message}`);
         showNotification(`Pasien ${patientName} terlewati: ${err.message}`, "warning");
         await resetFormPendaftaran();
+        showNotification("Menyiapkan pasien berikutnya (jeda stabil 2.5 detik)...", "info");
+        await delay(2500);
         continue;
       }
 
@@ -2829,9 +2849,9 @@ async function runAutoFillProcess(filterTgl = "", limit = 0, sheetTarget = "PROL
           console.error(`[PCare AutoFiller] Gagal update TGL ENTRI ke Sheets untuk pasien ${patient.nama || formattedNoBpjs}:`, updateErr);
         }
         await resetFormPendaftaran();
-        console.log(`[PCare AutoFiller] Menunggu jeda 1 detik sebelum beralih ke pasien berikutnya...`);
-        showNotification(`Selesai ${progressText}. Menyiapkan pasien berikutnya...`, "info");
-        await sleep(1000);
+        console.log(`[PCare AutoFiller] Menyiapkan pasien berikutnya (jeda stabil 2.5 detik)...`);
+        showNotification("Menyiapkan pasien berikutnya (jeda stabil 2.5 detik)...", "info");
+        await delay(2500);
       }
     }
 
@@ -3157,7 +3177,8 @@ async function injectPatientData(data, customDate = "", sheetTarget = "PROLANIS"
   } else {
     elSearchInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
   }
-  await sleep(500);
+  // Jeda tunggu awal setelah klik cari sebelum mulai memeriksa data profil peserta
+  await delay(1200);
 
   console.log(`[PCare AutoFiller] 3. Menunggu data peserta "${noBpjs}" muncul di layar (maksimal 10 detik)...`);
   showNotification(`Mencari data BPJS ${noBpjs}... Menunggu verifikasi...`, "info");
@@ -3252,7 +3273,7 @@ async function injectPatientData(data, customDate = "", sheetTarget = "PROLANIS"
 
   // Dropdown Poli Tujuan "004" (Laboratorium)
   safeSelect(SELECTORS_PENDAFTARAN.poli, "004");
-  await sleep(300);
+  await delay(600);
 
   // Keluhan (Prioritas data.keluhan dari spreadsheet -> fallback cerdas diagnosa)
   let regFallbackKeluhan = "Pemeriksaan Prolanis";
@@ -3300,6 +3321,9 @@ async function injectPatientData(data, customDate = "", sheetTarget = "PROLANIS"
   }
 
   console.log(`[PCare AutoFiller] Tanggal pendaftaran terverifikasi: "${elDateVerify ? elDateVerify.value : targetDate}" (Target: "${targetDate}").`);
+  // Jeda napas setelah semua field terisi dan tanggal terkunci
+  await delay(1000);
+
   console.log("[PCare AutoFiller] Mengklik tombol Simpan Pendaftaran...");
   const btnSimpan = document.querySelector('#btnSimpanPendaftaran, #btnSimpan, #btn_simpan, button[id*="Simpan" i], button[onclick*="simpan" i], button.btn-success');
   if (btnSimpan) {
@@ -3315,12 +3339,12 @@ async function injectPatientData(data, customDate = "", sheetTarget = "PROLANIS"
   // Jeda awal 500ms
   await sleep(500);
 
-  // Polling verifikasi simpan ketat (Strict Success Verification) selama maksimal 6 detik
+  // Polling verifikasi simpan ketat (Strict Success Verification) selama maksimal 10 detik
   let isSavedSuccess = false;
   let noAntrean = "";
   const pollStart = Date.now();
 
-  while (Date.now() - pollStart < 6000) {
+  while (Date.now() - pollStart < 10000) {
     // 1. Cek apakah setelah submit muncul dialog penolakan fatal PCare (Klaim Mundur)
     const fatalRej = await checkPendaftaranDialogRejection();
     if (fatalRej) {
@@ -3356,10 +3380,10 @@ async function injectPatientData(data, customDate = "", sheetTarget = "PROLANIS"
       break;
     }
 
-    await sleep(300);
+    await sleep(400);
   }
 
-  // JIKA dalam 6 detik tidak ada respon sukses / form tertahan error:
+  // JIKA dalam 10 detik tidak ada respon sukses / form tertahan error:
   if (!isSavedSuccess) {
     console.error(`[PCare AutoFiller] Pendaftaran ${data.nama || noBpjs} gagal/timeout di PCare. TGL ENTRI dibiarkan kosong.`);
     showNotification(`Pendaftaran ${data.nama || noBpjs} gagal tersimpan di PCare. TGL ENTRI tidak diisi.`, "warning");
