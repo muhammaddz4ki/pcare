@@ -15,6 +15,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   const pageDot = document.getElementById("pageDot");
   const pageText = document.getElementById("pageText");
 
+  const filterTanggal = document.getElementById("filterTanggal");
+  const btnHariIni = document.getElementById("btnHariIni");
+
   function updateSheetTargetUI() {
     const val = selectSheetTarget ? selectSheetTarget.value : "PROLANIS";
     if (hintModul1) {
@@ -51,6 +54,30 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     }
   };
+
+  if (filterTanggal) {
+    safeStorage.get("savedFilterTanggal", (result) => {
+      if (result && result.savedFilterTanggal) {
+        filterTanggal.value = result.savedFilterTanggal;
+      }
+    });
+
+    filterTanggal.addEventListener("input", () => {
+      safeStorage.set({ savedFilterTanggal: filterTanggal.value });
+    });
+  }
+
+  if (btnHariIni && filterTanggal) {
+    btnHariIni.addEventListener("click", () => {
+      const today = new Date();
+      const d = String(today.getDate()).padStart(2, "0");
+      const m = String(today.getMonth() + 1).padStart(2, "0");
+      const y = today.getFullYear();
+      const todayStr = `${d}-${m}-${y}`;
+      filterTanggal.value = todayStr;
+      safeStorage.set({ savedFilterTanggal: todayStr });
+    });
+  }
 
   if (selectSheetTarget) {
     safeStorage.get("selectedSheetTarget", (result) => {
@@ -216,9 +243,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       const limit = getSelectedLimit();
       const limitText = getLimitLabel(limit);
       const sheetTargetVal = selectSheetTarget ? selectSheetTarget.value : "PROLANIS";
+      const tglFilterVal = filterTanggal ? String(filterTanggal.value || "").trim() : "";
 
-      const msg = `Memulai Pendaftaran Pasien (${sheetTargetVal}, ${limitText})...`;
-      sendAction("START_PENDAFTARAN", msg, { limit: limit, sheetTarget: sheetTargetVal });
+      const msg = `Memulai Pendaftaran Pasien (${sheetTargetVal}${tglFilterVal ? `, ${tglFilterVal}` : ""}, ${limitText})...`;
+      sendAction("START_PENDAFTARAN", msg, { limit: limit, sheetTarget: sheetTargetVal, tgl: tglFilterVal });
     });
   }
 
@@ -226,14 +254,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (btnInputHasil) {
     btnInputHasil.addEventListener("click", () => {
       const selectedRadio = document.querySelector('input[name="searchMode"]:checked');
-      const searchMode = selectedRadio ? selectedRadio.value : "kartu";
+      const searchMode = (selectedRadio && selectedRadio.value === "antrian") ? "antrian" : "kartu";
       const modeLabel = searchMode === "antrian" ? "No. Antrian" : "No. Kartu BPJS";
       const limit = getSelectedLimit();
       const limitText = getLimitLabel(limit);
       const sheetTargetVal = selectSheetTarget ? selectSheetTarget.value : "PROLANIS";
+      const tglFilterVal = filterTanggal ? String(filterTanggal.value || "").trim() : "";
 
-      const msg = `Memulai Entri Kunjungan (${sheetTargetVal}, ${modeLabel}, ${limitText})...`;
-      sendAction("START_INPUT_HASIL", msg, { searchMode: searchMode, limit: limit, sheetTarget: sheetTargetVal });
+      const msg = `Memulai Entri Kunjungan (${sheetTargetVal}${tglFilterVal ? `, ${tglFilterVal}` : ""}, ${modeLabel}, ${limitText})...`;
+      sendAction("START_INPUT_HASIL", msg, { searchMode: searchMode, limit: limit, sheetTarget: sheetTargetVal, tgl: tglFilterVal });
     });
   }
 
@@ -241,10 +270,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (btnStart) {
     btnStart.addEventListener("click", () => {
       const selectedRadio = document.querySelector('input[name="searchMode"]:checked');
-      const searchMode = selectedRadio ? selectedRadio.value : "kartu";
+      const searchMode = (selectedRadio && selectedRadio.value === "antrian") ? "antrian" : "kartu";
       const limit = getSelectedLimit();
       const sheetTargetVal = selectSheetTarget ? selectSheetTarget.value : "PROLANIS";
-      sendAction("START_AUTO_FILL", "Menghubungi halaman aktif...", { searchMode: searchMode, limit: limit, sheetTarget: sheetTargetVal });
+      const tglFilterVal = filterTanggal ? String(filterTanggal.value || "").trim() : "";
+      sendAction("START_AUTO_FILL", "Menghubungi halaman aktif...", { searchMode: searchMode, limit: limit, sheetTarget: sheetTargetVal, tgl: tglFilterVal });
     });
   }
 });

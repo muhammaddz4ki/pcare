@@ -267,6 +267,16 @@
       </select>
     </div>
 
+    <!-- Filter Tanggal Pelayanan -->
+    <div class="filter-box" style="margin-bottom: 10px;">
+      <label for="filterTanggal" class="filter-label">Tanggal Pelayanan / Filter (Opsional):</label>
+      <div class="filter-input-row" style="display: flex; gap: 6px;">
+        <input type="text" id="filterTanggal" class="filter-input" placeholder="DD-MM-YYYY (Contoh: 01-10-2026)" style="flex: 1;">
+        <button type="button" id="btnHariIni" style="padding: 6px 10px; font-size: 11px; font-weight: 600; border-radius: 6px; border: 1px solid #cbd5e1; background: #e2e8f0; cursor: pointer;">Hari Ini</button>
+      </div>
+      <div class="filter-hint" style="font-size: 10px; color: #64748b; margin-top: 4px;">Kosongkan jika ingin memproses otomatis dari data teratas yang belum selesai.</div>
+    </div>
+
     <div class="section-title">Pilih Modul Otomasi</div>
     <div class="btn-group">
       <!-- Modul 1: Pendaftaran Pasien -->
@@ -299,6 +309,7 @@
             <span>No. Antrian</span>
           </label>
         </div>
+        <div class="filter-hint" style="font-size: 10px; color: #166534; margin-top: 3px; font-weight: 500;">(Direkomendasikan: No. Kartu BPJS agar akurat 100% dan tidak lompat)</div>
       </div>
 
       <!-- Opsi Jumlah Ambil Data (Limit / Tes Data) -->

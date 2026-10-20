@@ -134,14 +134,17 @@ function doGet(e) {
         const y = matchIndo[3];
         return `${d}-${m}-${y}`;
       }
-      const matchDDMM = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      // Bersihkan waktu atau timestamp jika ada (misal "1/10/2026 00:00:00" atau "01-10-2026T00:00:00")
+      const cleanDateStr = str.split(/[T\s]+/)[0].trim();
+      const matchDDMM = cleanDateStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
       if (matchDDMM) {
         const d = matchDDMM[1].padStart(2, "0");
         const m = matchDDMM[2].padStart(2, "0");
-        const y = matchDDMM[3];
+        let y = matchDDMM[3];
+        if (y.length === 2) y = "20" + y;
         return `${d}-${m}-${y}`;
       }
-      const matchISO = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+      const matchISO = cleanDateStr.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
       if (matchISO) {
         const y = matchISO[1];
         const m = matchISO[2].padStart(2, "0");
@@ -342,8 +345,22 @@ function doGet(e) {
       idxTglPly = 1;   // Kolom B (index 1): TGL PLY
       idxTglHasil = 2; // Kolom C (index 2): TGL HASIL
       idxTglEntri = 3; // Kolom D (index 3): TGL ENTRI
-      idxBpjs = 4;     // Kolom E (index 4): NO BPJS
-      if (idxNama <= 4) idxNama = 5; // Kolom F (index 5): NAMA
+      idxBpjs = 4;     // Default Kolom E (index 4): NO BPJS
+      if (idxNama <= 4) idxNama = 5; // Default Kolom F (index 5): NAMA
+
+      // Deteksi adaptif jika Kolom D berisi nomor BPJS (13 digit) dan Kolom E berisi teks nama
+      let colDIsBpjsCount = 0;
+      for (let s = 0; s < Math.min(dataValues.length, 10); s++) {
+        const valD = String(dataValues[s][3] || "").replace(/\D/g, "");
+        const valE = String(dataValues[s][4] || "").trim();
+        if (valD.length >= 10 && valE.length > 2 && /[A-Za-z]/.test(valE)) {
+          colDIsBpjsCount++;
+        }
+      }
+      if (colDIsBpjsCount > 0) {
+        idxBpjs = 3; // Gunakan Kolom D sebagai NO BPJS
+        idxNama = 4; // Gunakan Kolom E sebagai NAMA
+      }
     }
 
     const idxTensi = getColIdx(["TENSI", "TEKANAN DARAH"], 7);             // Kolom H
@@ -410,11 +427,29 @@ function doGet(e) {
           targetDateStandard = toStandardDDMMYYYY(targetTglParam);
         }
       } else {
-        // Jika targetTglParam kosong, biarkan targetDateStandard = "" agar bot memproses semua pasien
-        // yang belum selesai secara berurutan dari baris paling atas (misal tgl 1 Oktober) sampai tuntas,
-        // karena content.js sudah menyinkronkan #txttanggal secara otomatis per pasien menggunakan patient.effectiveDate.
-        // Baris yang di-highlight kuning oleh admin tetap diproses (hanya skip jika background merah muda #F4CCCC / #E6B8AF).
-        targetDateStandard = "";
+        // Jika targetTglParam KOSONG: Pindai dari atas ke bawah untuk mencari baris data pertama
+        // yang belum selesai (background BUKAN #F4CCCC atau #E6B8AF) dan memiliki TGL ENTRI.
+        // Dengan begitu, jika ada pasien kuning/belum selesai di tanggal teratas (misal 01-10-2026),
+        // backend otomatis mengunci targetDateStandard ke tanggal tersebut sampai tuntas!
+        for (let i = 0; i < dataValues.length; i++) {
+          const isDone = isRedOrSalem(backgrounds[i][0]) || isRedOrSalem(backgrounds[i][1]) || isRedOrSalem(backgrounds[i][2]);
+          if (!isDone) {
+            const cVal = dataValues[i][idxTglEntri];
+            if (cVal && formatCellValue(cVal) !== "") {
+              const std = toStandardDDMMYYYY(cVal);
+              if (std) {
+                targetDateStandard = std;
+                break;
+              }
+            } else if (isPapSmearSheet) {
+              const pDate = toStandardDDMMYYYY(dataValues[i][2]) || toStandardDDMMYYYY(dataValues[i][idxTglPly]);
+              if (pDate) {
+                targetDateStandard = pDate;
+                break;
+              }
+            }
+          }
+        }
       }
     }
 
@@ -442,7 +477,18 @@ function doGet(e) {
       const currentRowNumber = i + 9;
       const rowBg = String(backgrounds[i][0] || "").trim().toUpperCase();
 
-      const noBpjsRaw = row[idxBpjs];
+      let actualRowBpjsIdx = idxBpjs;
+      let actualRowNamaIdx = idxNama;
+      if (isPapSmearSheet) {
+        const dDigits = String(row[3] || "").replace(/\D/g, "");
+        const eVal = String(row[4] || "").trim();
+        if (dDigits.length >= 10 && eVal.length > 2 && /[A-Za-z]/.test(eVal)) {
+          actualRowBpjsIdx = 3;
+          actualRowNamaIdx = 4;
+        }
+      }
+
+      const noBpjsRaw = row[actualRowBpjsIdx];
       const noBpjsClean = (noBpjsRaw !== null && noBpjsRaw !== undefined) ? String(noBpjsRaw).trim() : "";
       // Rule: Abaikan/skip baris jika kolom NO BPJS kosong
       if (!noBpjsClean) {
@@ -685,10 +731,13 @@ function doGet(e) {
       };
 
       const pelayananNonKapVal = formatCellValue(row[idxPelayananNonKap] !== undefined ? row[idxPelayananNonKap] : row[40]);
+      const rawNoAntrean = formatCellValue(row[0]); // Ambil nomor antrean asli langsung dari Kolom A (index 0)
 
       // Susun record data terstruktur untuk dikirim ke ekstensi Chrome
       patientRecords.push({
         rowNumber: currentRowNumber,
+        noAntrean: rawNoAntrean,
+        antrean: rawNoAntrean,
         sheetName: sheet.getName(),
         tglPly: tglPlyClean,
         tglHasil: tglHasilClean,
@@ -697,7 +746,7 @@ function doGet(e) {
         tglOffset: tglOffset,
         tglEntri: tglEntriClean,
         noBpjs: noBpjs,
-        nama: formatCellValue(row[idxNama]),
+        nama: formatCellValue(row[actualRowNamaIdx]),
         tensi: tensiRaw,
         sistole: sistole,
         diastole: diastole,
@@ -741,11 +790,12 @@ function doGet(e) {
         },
         // Raw mapping berdasar abjad kolom (hingga AO)
         rawCols: {
+          A: rawNoAntrean,
           B: tglPlyClean,
           C: isPapSmearSheet ? tglHasilClean : tglEntriClean,
-          D: isPapSmearSheet ? tglEntriClean : noBpjs,
-          E: isPapSmearSheet ? noBpjs : formatCellValue(row[4]),
-          F: isPapSmearSheet ? formatCellValue(row[idxNama]) : formatCellValue(row[5]),
+          D: isPapSmearSheet ? (actualRowBpjsIdx === 3 ? noBpjs : tglEntriClean) : noBpjs,
+          E: isPapSmearSheet ? (actualRowBpjsIdx === 3 ? formatCellValue(row[actualRowNamaIdx]) : noBpjs) : formatCellValue(row[4]),
+          F: isPapSmearSheet ? (actualRowBpjsIdx === 3 ? formatCellValue(row[5]) : formatCellValue(row[actualRowNamaIdx])) : formatCellValue(row[5]),
           tglHasil: tglHasilClean,
           effectiveDate: effectiveDate,
           isDuplicateSameDay: isDuplicateSameDay,
@@ -804,9 +854,16 @@ function doGet(e) {
       });
     }
 
-    // Untuk Modul 2: Urutkan baris sesuai urutan pendaftaran antrean di spreadsheet (Row terkecil ke terbesar, 1, 2, 3...)
+    // Untuk Modul 2: Urutkan data berdasarkan nomor antrean asli Kolom A (jika ada), atau nomor baris
     if (isKunjunganMode) {
-      patientRecords.sort((a, b) => a.rowNumber - b.rowNumber);
+      patientRecords.sort((a, b) => {
+        const numA = parseInt(String(a.antrean || a.noAntrean || "").replace(/\D/g, ""), 10) || 0;
+        const numB = parseInt(String(b.antrean || b.noAntrean || "").replace(/\D/g, ""), 10) || 0;
+        if (numA > 0 && numB > 0 && numA !== numB) {
+          return numA - numB;
+        }
+        return a.rowNumber - b.rowNumber;
+      });
     }
 
     return createJsonResponse({
@@ -1123,12 +1180,22 @@ function doPost(e) {
     const tanggal = payload.tanggal !== undefined && payload.tanggal !== null ? String(payload.tanggal).trim() : "";
     const jenis = payload.jenis ? String(payload.jenis).trim().toUpperCase() : "";
 
+    // 1. Pastikan pencarian actualRow menggunakan findActualRowNumber
     const actualRow = findActualRowNumber(targetSheet, rowNumber, noBpjs);
 
-    // Tulis nilai tanggal di Kolom C (kolom ke-3)
+    // 2. Tuliskan nilai tanggal ke Kolom C (kolom ke-3)
     if (tanggal) {
       targetSheet.getRange(actualRow, 3).setValue(tanggal);
     }
+
+    // 3. Tuliskan nomor antrean ke Kolom A (kolom ke-1) jika noAntrean ada
+    const antreanVal = payload.noAntrean || payload.antrean || payload.noAntrian || "";
+    if (antreanVal) {
+      targetSheet.getRange(actualRow, 1).setValue(antreanVal);
+    }
+
+    // 4. Eksekusi SpreadsheetApp.flush() tepat setelah penulisan nilai agar data langsung tersimpan permanen di Google Sheets
+    SpreadsheetApp.flush();
 
     // Evaluasi Pemindahan Pasien ke Sheet Tujuan Sesuai Jenis Kepesertaan
     let isMoved = false;
@@ -1171,20 +1238,22 @@ function doPost(e) {
             targetSheet.deleteRow(actualRow);
             isMoved = true;
             newSheetName = destSheet.getName();
+            SpreadsheetApp.flush();
           }
         }
       }
     }
 
-    SpreadsheetApp.flush();
-
+    // 5. Kembalikan response JSON sukses
     return createJsonResponse({
       status: "success",
+      action: "UPDATE_PENDAFTARAN",
+      rowNumber: actualRow,
+      tanggal: tanggal,
+      noAntrean: antreanVal,
       message: isMoved
         ? `Sukses update TGL ENTRI dan memindahkan pasien ke '${newSheetName}' (Baris ${newRowNumber}).`
         : `Sukses mengupdate Kolom C (TGL ENTRI) pada baris ${actualRow} dengan nilai "${tanggal}".`,
-      rowNumber: newRowNumber,
-      tanggal: tanggal,
       moved: isMoved,
       fromSheet: targetSheet.getName(),
       toSheet: newSheetName,
